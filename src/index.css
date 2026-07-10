@@ -1,0 +1,149 @@
+/* App-specific tweaks on top of PicoCSS (imported in main.tsx). */
+
+:root {
+  --pico-font-size: 100%;
+}
+
+/* Wizard step nav: keep buttons on one row, modest size */
+nav.steps {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  margin-bottom: 1.5rem;
+}
+
+nav.steps button {
+  width: auto;
+  margin-bottom: 0;
+  padding: 0.4rem 0.9rem;
+  font-size: 0.9rem;
+}
+
+/* Toolbar rows (location plan controls etc.) */
+.toolbar {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-bottom: 0.75rem;
+}
+
+.toolbar > input {
+  width: auto;
+  margin-bottom: 0;
+}
+
+.toolbar > button {
+  width: auto;
+  margin-bottom: 0;
+  padding: 0.4rem 0.8rem;
+  font-size: 0.85rem;
+}
+
+/* Case list rows */
+.case-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+}
+
+.case-row .actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}
+
+.case-row .actions button {
+  width: auto;
+  margin-bottom: 0;
+  padding: 0.3rem 0.8rem;
+  font-size: 0.85rem;
+}
+
+/* Live drawing previews */
+.previews {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 1rem;
+}
+
+.previews svg {
+  background: var(--pico-card-background-color);
+  border: 1px solid var(--pico-muted-border-color);
+  border-radius: var(--pico-border-radius);
+}
+
+.map-container {
+  width: 100%;
+  height: 480px;
+  border-radius: var(--pico-border-radius);
+  overflow: hidden;
+  border: 1px solid var(--pico-muted-border-color);
+}
+
+small.muted {
+  color: var(--pico-muted-color);
+}
+
+/* Roof composer layout: options left, canvas right */
+.composer {
+  display: grid;
+  grid-template-columns: 280px 1fr;
+  gap: 1.25rem;
+  align-items: start;
+}
+
+@media (max-width: 900px) {
+  .composer {
+    grid-template-columns: 1fr;
+  }
+}
+
+.composer aside label {
+  font-size: 0.85rem;
+}
+
+.composer aside input,
+.composer aside select {
+  padding: 0.35rem 0.6rem;
+  font-size: 0.85rem;
+  margin-bottom: 0.5rem;
+  height: auto;
+}
+
+.composer .two-col {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5rem;
+}
+
+.palette {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.5rem;
+}
+
+.palette button {
+  width: 100%;
+  margin: 0;
+  padding: 0.4rem 0.3rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  align-items: stretch;
+  font-size: 0.75rem;
+}
+
+.grid-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.composer svg {
+  background: var(--pico-card-background-color);
+  border: 1px solid var(--pico-muted-border-color);
+  border-radius: var(--pico-border-radius);
+}
