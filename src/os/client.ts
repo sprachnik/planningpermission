@@ -72,6 +72,29 @@ export function hasPremiumTiles(): Promise<boolean> {
 }
 
 /**
+ * Minimal style used when the OS style itself can't be fetched (key missing
+ * from the deployment env, origin not on the key's allowlist, offline…).
+ * The map still initialises and fires "load", so red-line boundary drawing
+ * keeps working on a blank canvas instead of silently recording invisible
+ * clicks.
+ */
+export const BLANK_FALLBACK_STYLE: StyleSpecification = {
+  version: 8,
+  name: "blank-fallback",
+  sources: {},
+  layers: [{ id: "background", type: "background", paint: { "background-color": "#edefeb" } }],
+};
+
+/** The OS vector style as published (Premium plans), fetched so a failure is detectable. */
+export async function osVectorStylePlain(): Promise<StyleSpecification> {
+  const res = await fetch(osVectorStyleUrl());
+  if (!res.ok) {
+    throw new Error(`OS vector style request failed: ${res.status} ${res.statusText}`);
+  }
+  return (await res.json()) as StyleSpecification;
+}
+
+/**
  * The OS vector style reworked for the free plan, so MapLibre overzooms the
  * free vector data at deeper display zooms (crisp lines, generalised detail)
  * instead of requesting Premium tiles that 403:
@@ -87,11 +110,7 @@ export function hasPremiumTiles(): Promise<boolean> {
  *   beyond it are dropped.
  */
 export async function osVectorStyleCapped(): Promise<StyleSpecification> {
-  const res = await fetch(osVectorStyleUrl());
-  if (!res.ok) {
-    throw new Error(`OS vector style request failed: ${res.status} ${res.statusText}`);
-  }
-  const style = (await res.json()) as StyleSpecification;
+  const style = await osVectorStylePlain();
   for (const source of Object.values(style.sources)) {
     if (source.type === "vector" || source.type === "raster") {
       source.maxzoom = Math.min(source.maxzoom ?? 22, FREE_PLAN_MAX_TILE_ZOOM);

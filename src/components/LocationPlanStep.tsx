@@ -4,7 +4,7 @@ import "maplibre-gl/dist/maplibre-gl.css";
 import type { Feature, FeatureCollection } from "geojson";
 import type { BoundaryPoint } from "../data/types";
 import type { StyleSpecification } from "maplibre-gl";
-import { osVectorStyleUrl, osVectorStyleCapped, osTransformRequest, hasApiKey, hasPremiumTiles } from "../os/client";
+import { osVectorStylePlain, osVectorStyleCapped, osTransformRequest, hasApiKey, hasPremiumTiles, BLANK_FALLBACK_STYLE } from "../os/client";
 import { lookupPostcode } from "../os/postcode";
 import { zoomForScale } from "../os/basemap";
 import { CONTENT_WIDTH_MM, CONTENT_HEIGHT_MM, BASEMAP_PX_PER_MM } from "../pdf/scale";
@@ -58,6 +58,7 @@ export function LocationPlanStep({ address, boundary, mapCentre, locationPlanIma
   const [status, setStatus] = useState<string | null>(null);
   const [premiumRequired, setPremiumRequired] = useState(false);
   const [freePlan, setFreePlan] = useState(false);
+  const [basemapUnavailable, setBasemapUnavailable] = useState(false);
 
   boundaryRef.current = boundary;
 
@@ -71,18 +72,24 @@ export function LocationPlanStep({ address, boundary, mapCentre, locationPlanIma
     const resizeObserver = new ResizeObserver(() => map?.resize());
 
     (async () => {
-      // Free OpenData keys 403 on z17+ tiles ("Premium Data"). Detect the plan
-      // up front; on free plans cap the tile sources at z16 so MapLibre
-      // overzooms the free vector data — crisp lines, generalised detail —
-      // instead of requesting Premium tiles and going blank.
-      let style: string | StyleSpecification = osVectorStyleUrl();
+      // Free OpenData keys 403 on Premium (deep-zoom) tiles. Detect the plan
+      // up front; on free plans cap the tile sources so MapLibre overzooms
+      // the free vector data — crisp lines, generalised detail — instead of
+      // requesting Premium tiles and going blank.
+      let style: StyleSpecification;
       try {
-        if (!(await hasPremiumTiles())) {
+        if (await hasPremiumTiles()) {
+          style = await osVectorStylePlain();
+        } else {
           style = await osVectorStyleCapped();
           if (!cancelled) setFreePlan(true);
         }
       } catch {
-        // fall back to the plain style URL; deep-zoom 403s surface via "error" below
+        // The OS style itself is unreachable (key not set on this deploy,
+        // origin missing from the key's allowlist, offline). A blank style
+        // keeps the map alive so boundary drawing still renders.
+        style = BLANK_FALLBACK_STYLE;
+        if (!cancelled) setBasemapUnavailable(true);
       }
       if (cancelled) return;
 
@@ -275,6 +282,14 @@ export function LocationPlanStep({ address, boundary, mapCentre, locationPlanIma
           <code>.env.example</code>.
         </article>
       )}
+      {basemapUnavailable && (
+        <article aria-label="Basemap unavailable warning">
+          <strong>OS basemap unavailable — the API rejected the request.</strong> Check that <code>VITE_OS_API_KEY</code> is set in this deployment's
+          environment variables and that the key's allowed origins include <strong>{typeof window !== "undefined" ? window.location.origin : "this domain"}</strong>{" "}
+          (OS Data Hub dashboard → Project → API keys). You can still draw the red-line boundary on the blank canvas below, but a submission-ready
+          Location Plan needs the basemap captured behind it.
+        </article>
+      )}
       {freePlan && !premiumRequired && (
         <article aria-label="Free plan notice">
           <strong>OS Data Hub free plan detected.</strong> Detailed close-up mapping is Premium Data, so the map is drawing the most detailed free
@@ -286,7 +301,7 @@ export function LocationPlanStep({ address, boundary, mapCentre, locationPlanIma
           (the first £1,000/month of usage is free).
         </article>
       )}
-      {premiumRequired && (
+      {premiumRequired && !basemapUnavailable && (
         <article aria-label="Premium plan required warning">
           <strong>Your OS Data Hub project is on the free plan.</strong> Detailed mapping at 1:1250 planning scales is "Premium Data" and the API is
           returning 403 for it, which is why the map looks blurry or blank at this zoom. Fix: in the{" "}
