@@ -4,7 +4,7 @@ import { planScene, elevationScene, obliqueScene } from "../geometry/composite";
 import type { Direction } from "../geometry/composite";
 import { buildWingFaces, faceNormal, faceCentroid } from "../geometry/faces3d";
 import type { RoofParams } from "../data/types";
-import { WALL_FILL, ROOF_FILL, ROOF_FILL_LIGHT, flip, toPointsAttr } from "./svgDraw";
+import { WALL_FILL, ROOF_FILL, ROOF_FILL_LIGHT, flip, toPointsAttr, lighten } from "./svgDraw";
 
 const SELECTED_STROKE = "#4353ff";
 const LINE = "#2b2b2b";
@@ -45,14 +45,16 @@ function HorizontalDim({ y, from, to, label }: { y: number; from: number; to: nu
 }
 
 /** Renders any projected Scene2D (oblique or elevation) with wall/roof shading. */
-export function ScenePolygons({ scene, selectedWingId }: { scene: Scene2D; selectedWingId?: string | null }) {
+export function ScenePolygons({ scene, selectedWingId, roofColor }: { scene: Scene2D; selectedWingId?: string | null; roofColor?: string }) {
+  const roofBase = roofColor ?? ROOF_FILL;
+  const roofLight = roofColor ? lighten(roofColor, 0.22) : ROOF_FILL_LIGHT;
   return (
     <>
       {scene.polygons.map((poly, i) => (
         <polygon
           key={i}
           points={toPointsAttr(flip(poly.points, scene.heightM))}
-          fill={poly.kind === "roof" ? (i % 2 ? ROOF_FILL_LIGHT : ROOF_FILL) : WALL_FILL}
+          fill={poly.kind === "roof" ? (i % 2 ? roofLight : roofBase) : WALL_FILL}
           stroke={selectedWingId && poly.wingId === selectedWingId ? SELECTED_STROKE : LINE}
           strokeWidth={selectedWingId && poly.wingId === selectedWingId ? STROKE * 2 : STROKE}
           strokeLinejoin="round"
@@ -62,26 +64,26 @@ export function ScenePolygons({ scene, selectedWingId }: { scene: Scene2D; selec
   );
 }
 
-export function ObliquePreview({ wings, selectedWingId, label, height }: { wings: Wing[]; selectedWingId?: string | null; label?: string; height?: number | string }) {
+export function ObliquePreview({ wings, selectedWingId, label, height, roofColor }: { wings: Wing[]; selectedWingId?: string | null; label?: string; height?: number | string; roofColor?: string }) {
   const scene = obliqueScene(wings);
   return (
     <div>
       {label && <div style={{ fontSize: 12, marginBottom: 4 }}>{label}</div>}
       <Frame widthM={scene.widthM} heightM={scene.heightM} pad={0.8} height={height}>
-        <ScenePolygons scene={scene} selectedWingId={selectedWingId} />
+        <ScenePolygons scene={scene} selectedWingId={selectedWingId} roofColor={roofColor} />
       </Frame>
     </div>
   );
 }
 
-export function ElevationScenePreview({ wings, dir, label }: { wings: Wing[]; dir: Direction; label: string }) {
+export function ElevationScenePreview({ wings, dir, label, roofColor }: { wings: Wing[]; dir: Direction; label: string; roofColor?: string }) {
   const scene = elevationScene(wings, dir);
   const groundOverhang = 0.8;
   return (
     <div>
       <div style={{ fontSize: 12, marginBottom: 4 }}>{label}</div>
       <Frame widthM={scene.widthM} heightM={scene.heightM} height={150}>
-        <ScenePolygons scene={scene} />
+        <ScenePolygons scene={scene} roofColor={roofColor} />
         <line x1={-groundOverhang} y1={scene.heightM} x2={scene.widthM + groundOverhang} y2={scene.heightM} stroke={LINE} strokeWidth={STROKE * 1.5} />
         <HorizontalDim y={scene.heightM + 0.5} from={0} to={scene.widthM} label={`${scene.widthM.toFixed(1)} m`} />
       </Frame>
@@ -89,16 +91,17 @@ export function ElevationScenePreview({ wings, dir, label }: { wings: Wing[]; di
   );
 }
 
-export function PlanScenePreview({ wings, label }: { wings: Wing[]; label: string }) {
+export function PlanScenePreview({ wings, label, roofColor }: { wings: Wing[]; label: string; roofColor?: string }) {
   const scene = planScene(wings);
   const H = scene.heightM;
+  const fill = roofColor ? lighten(roofColor, 0.35) : ROOF_FILL_LIGHT;
   return (
     <div>
       <div style={{ fontSize: 12, marginBottom: 4 }}>{label}</div>
       <Frame widthM={scene.widthM} heightM={scene.heightM} height={150}>
         {scene.wings.map((w) => (
           <g key={w.wingId}>
-            <polygon points={toPointsAttr(flip(w.outline, H))} fill={ROOF_FILL_LIGHT} stroke={LINE} strokeWidth={STROKE} />
+            <polygon points={toPointsAttr(flip(w.outline, H))} fill={fill} stroke={LINE} strokeWidth={STROKE} />
             {w.ridgeLine && (
               <line x1={w.ridgeLine[0].x} y1={H - w.ridgeLine[0].y} x2={w.ridgeLine[1].x} y2={H - w.ridgeLine[1].y} stroke={LINE} strokeWidth={STROKE * 1.8} />
             )}

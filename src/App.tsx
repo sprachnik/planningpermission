@@ -150,6 +150,7 @@ export default function App() {
       {step === "roof" && (
         <RoofComposerStep
           wings={active.wings ?? []}
+          proposedWings={active.proposedWings}
           materials={active.materials}
           boundary={active.boundary}
           onChange={(updates) => persist({ ...active, ...updates })}
@@ -161,7 +162,10 @@ export default function App() {
           {active.boundary.length < 3 && <p>Draw a boundary on the Location Plan step first.</p>}
           {(active.wings?.length ?? 0) === 0 && <p>Add at least one block on the Roof &amp; Elevations step first.</p>}
           {(active.boundary.length >= 3 || (active.wings?.length ?? 0) > 0) && (
-            <PDFDownloadLink document={<PdfBundle planningCase={active} />} fileName={`${active.address || "roofplan"}-drawings.pdf`}>
+            // PDFDownloadLink renders its document to a blob once on mount and
+            // ignores prop changes — key it by updatedAt so edits remount it
+            // and the download reflects the latest case.
+            <PDFDownloadLink key={active.updatedAt} document={<PdfBundle planningCase={active} />} fileName={`${active.address || "roofplan"}-drawings.pdf`}>
               {({ loading }) => <button aria-busy={loading}>{loading ? "Preparing PDF…" : "Download drawing bundle (PDF)"}</button>}
             </PDFDownloadLink>
           )}

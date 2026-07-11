@@ -76,7 +76,7 @@ export function ScaleBar({ scaleDenominator }: { scaleDenominator: number }) {
         <Text x={0} y={heightMm + 3.5} style={{ fontSize: 3 }}>
           0
         </Text>
-        <Text x={widthMm - 2} y={heightMm + 3.5} style={{ fontSize: 3 }}>
+        <Text x={widthMm} y={heightMm + 3.5} textAnchor="end" style={{ fontSize: 3 }}>
           {barLengthM}m
         </Text>
       </Svg>

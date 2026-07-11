@@ -42,8 +42,12 @@ password protection).
 - `src/data/types.ts` — `PlanningCase` is the unit of persistence. The house
   is modelled as `wings: Wing[]`: axis-aligned rectangular blocks on a shared
   plan grid, each with its own roof type (gable/hip/mono-pitch), pitch, eave
-  height, and optional 90° rotation. `roof` is the legacy single-block field,
-  migrated to `wings` by `normaliseCase()` in `App.tsx` on open.
+  height, and optional 90° rotation. `proposedWings` holds diverged proposed
+  geometry (extensions/dormers); undefined means "same as existing" — the
+  like-for-like material change. `materials` carries labels plus optional
+  roof swatch colours (defaults in `components/svgDraw.ts`). `roof` is the
+  legacy single-block field, migrated to `wings` by `normaliseCase()` in
+  `App.tsx` on open.
 - `src/data/repository.ts` + `localStorageRepository.ts` — the "database
   stub". All persistence is per-browser localStorage behind a small
   `Repository` interface; a real backend later means writing a second
@@ -105,16 +109,42 @@ Single source of truth: parametric wings → everything else is derived.
 
 Case list → 4-step wizard per case: Details (address; postcode is extracted
 and drives the map) → Location Plan (`LocationPlanStep`: MapLibre vector
-basemap, click-to-draw red-line boundary, capture at chosen scale via
-canvas snapshot) → Roof & Elevations (`components/composer/`: palette +
-plan canvas with grid/snap/drag/resize + pseudo-3D + four elevation
-previews) → Download (client-side PDF via `@react-pdf/renderer`).
+basemap, click-to-draw red-line boundary with drag-to-move points and
+undo, capture at chosen scale via canvas snapshot) → Roof & Elevations
+(`components/composer/`: existing/proposed toggle — proposed is seeded as
+a copy of existing on first open — palette + plan canvas with grid/snap/
+drag/resize, site-boundary underlay traced from step 2, pseudo-3D + four
+elevation previews tinted by the material swatch) → Download (client-side
+PDF via `@react-pdf/renderer`, keyed by `updatedAt`).
 
 ## Gotchas / hard-won knowledge
 
-- **OS free plan ≠ enough.** Zoom 17+ tiles are Premium Data (403). The
-  Premium plan's first £1,000/month is free. `LocationPlanStep` listens for
-  tile fetch failures and shows the explanation banner.
+- **OS free plan ≠ full detail.** Tiles deeper than z15 are Premium Data
+  (403 — observed empirically; the docs' "z17+" is wrong for this style).
+  The Premium plan's first £1,000/month is free. `client.ts#hasPremiumTiles`
+  probes one z16 tile at startup; on free plans `osVectorStyleCapped()` caps
+  tile sources at z15 AND retunes the layer zoom bands (the style swaps to
+  Premium-only source-layers past z15, so capping sources alone renders a
+  blank beige map): layers visible at z15 lose their `maxzoom`, layers with
+  `minzoom > 15` are dropped. MapLibre then *overzooms* the free vector
+  data — crisp at planning zooms, just generalised building outlines — and
+  `LocationPlanStep` shows an info banner. A hard tile-failure banner
+  remains as belt-and-braces if the probe misdetects. The probe logs one
+  unavoidable CORS console error on free plans (OS 403s carry no CORS
+  headers) — expected, not a bug.
+- **OS keys are origin-restricted.** Tile/style requests 403 unless the
+  browser origin is on the key's allowlist — plain curl/PowerShell requests
+  403 even for free-plan zooms, and a Vite dev server that lands on an
+  unlisted port (5175 when 5173/5174 are busy) gets a blank map. Test
+  through a browser context on an allowed origin.
+- **MapLibre zoom ≠ OSM zoom.** MapLibre/Mapbox zoom follows the 512px-tile
+  convention — one level offset from the classic 256px formula
+  (156543·cos(lat)/2^z). `os/basemap.ts` uses the 512px constant (78271.5);
+  using the 256px one made "1:1250" captures actually 1:625 and misaligned
+  the PDF red-line overlay by exactly 2×.
+- **PDFDownloadLink caches its blob** — it renders the document once on
+  mount and ignores prop changes, so it's keyed by `updatedAt` in App.tsx;
+  without that, edits don't reach the downloaded PDF.
 - **MapLibre blank canvas**: container size can settle after map init; a
   `ResizeObserver` calling `map.resize()` fixes "map doesn't draw until
   zoom". `canvasContextAttributes: { preserveDrawingBuffer: true }` is

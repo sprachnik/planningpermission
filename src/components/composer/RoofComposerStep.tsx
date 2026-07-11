@@ -1,15 +1,21 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { Wing, MaterialLabels, BoundaryPoint, RoofParams } from "../../data/types";
 import { getNearestBuilding, isHeightConfident } from "../../os/client";
+import { boundaryCentroid, toLocalMetres } from "../../geometry/latlng";
 import { PlanCanvas } from "./PlanCanvas";
 import { ObliquePreview, ElevationScenePreview, PlanScenePreview, RoofTypeThumbnail } from "../RoofPreviewSvg";
+import { roofColorFor } from "../svgDraw";
 
 interface Props {
   wings: Wing[];
+  /** Proposed geometry; undefined = same as existing (like-for-like change) */
+  proposedWings?: Wing[];
   materials: MaterialLabels;
   boundary: BoundaryPoint[];
-  onChange: (updates: { wings?: Wing[]; materials?: MaterialLabels }) => void;
+  onChange: (updates: { wings?: Wing[]; proposedWings?: Wing[]; materials?: MaterialLabels }) => void;
 }
+
+type Variant = "existing" | "proposed";
 
 const PRESETS: { label: string; params: RoofParams }[] = [
   { label: "Gable", params: { widthM: 8, depthM: 6, roofType: "gable", pitchDegrees: 40, eaveHeightM: 5 } },
@@ -17,14 +23,41 @@ const PRESETS: { label: string; params: RoofParams }[] = [
   { label: "Lean-to / mono", params: { widthM: 4, depthM: 3, roofType: "mono-pitch", pitchDegrees: 15, eaveHeightM: 2.4, highEdge: "depth-end" } },
 ];
 
-export function RoofComposerStep({ wings, materials, boundary, onChange }: Props) {
+export function RoofComposerStep({ wings, proposedWings, materials, boundary, onChange }: Props) {
   const [selectedId, setSelectedId] = useState<string | null>(wings[0]?.id ?? null);
   const [gridSize, setGridSize] = useState(0.5);
   const [snap, setSnap] = useState(true);
   const [placing, setPlacing] = useState<Wing | null>(null);
   const [prefillStatus, setPrefillStatus] = useState<string | null>(null);
+  const [variant, setVariant] = useState<Variant>("existing");
+  const [showBoundary, setShowBoundary] = useState(true);
 
-  const selected = wings.find((w) => w.id === selectedId) ?? null;
+  // Which wing set is being edited. Proposed is seeded as a copy of existing
+  // the first time it's opened, so a pure material change never diverges.
+  const activeWings = variant === "proposed" ? (proposedWings ?? wings) : wings;
+  const activeColor = roofColorFor(materials, variant === "proposed");
+
+  function setActiveWings(next: Wing[]) {
+    onChange(variant === "proposed" ? { proposedWings: next } : { wings: next });
+  }
+
+  function switchVariant(next: Variant) {
+    if (next === "proposed" && !proposedWings) {
+      onChange({ proposedWings: wings.map((w) => ({ ...w })) });
+    }
+    setVariant(next);
+    setPlacing(null);
+  }
+
+  const selected = activeWings.find((w) => w.id === selectedId) ?? null;
+
+  // Site boundary from the Location Plan step, as a local-metres underlay
+  // (centroid at the grid origin) so blocks can be traced over the real plot.
+  const boundaryOutline = useMemo(() => {
+    if (boundary.length < 3) return undefined;
+    const centroid = boundaryCentroid(boundary);
+    return boundary.map((p) => toLocalMetres(p, centroid));
+  }, [boundary]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -35,14 +68,14 @@ export function RoofComposerStep({ wings, materials, boundary, onChange }: Props
   }, []);
 
   function updateWing(updated: Wing) {
-    onChange({ wings: wings.map((w) => (w.id === updated.id ? updated : w)) });
+    setActiveWings(activeWings.map((w) => (w.id === updated.id ? updated : w)));
   }
 
   function startPlacing(preset: { label: string; params: RoofParams }) {
     setPlacing({
       ...preset.params,
       id: crypto.randomUUID(),
-      name: `${preset.label} ${wings.length + 1}`,
+      name: `${preset.label} ${activeWings.length + 1}`,
       x: 0,
       y: 0,
     });
@@ -51,14 +84,14 @@ export function RoofComposerStep({ wings, materials, boundary, onChange }: Props
   function placeWing(x: number, y: number) {
     if (!placing) return;
     const placed = { ...placing, x, y };
-    onChange({ wings: [...wings, placed] });
+    setActiveWings([...activeWings, placed]);
     setSelectedId(placed.id);
     setPlacing(null);
   }
 
   function deleteSelected() {
     if (!selected) return;
-    onChange({ wings: wings.filter((w) => w.id !== selected.id) });
+    setActiveWings(activeWings.filter((w) => w.id !== selected.id));
     setSelectedId(null);
   }
 
@@ -92,6 +125,22 @@ export function RoofComposerStep({ wings, materials, boundary, onChange }: Props
 
   return (
     <div>
+      <div className="toolbar" style={{ marginBottom: 12 }}>
+        <button className={variant === "existing" ? undefined : "secondary outline"} onClick={() => switchVariant("existing")} aria-pressed={variant === "existing"}>
+          Existing
+        </button>
+        <button className={variant === "proposed" ? undefined : "secondary outline"} onClick={() => switchVariant("proposed")} aria-pressed={variant === "proposed"}>
+          Proposed
+        </button>
+        {variant === "proposed" && (
+          <button className="secondary outline" onClick={() => onChange({ proposedWings: wings.map((w) => ({ ...w })) })} title="Discard proposed geometry changes and copy the existing house again">
+            Reset to existing
+          </button>
+        )}
+        <small className="muted">
+          Editing the <strong>{variant}</strong> house{variant === "proposed" ? " — change blocks here for extensions/dormers; leave as-is for a pure material change" : ""}
+        </small>
+      </div>
       <div className="composer">
         <aside>
           <h6 style={{ marginBottom: 8 }}>Add a block</h6>
@@ -123,6 +172,11 @@ export function RoofComposerStep({ wings, materials, boundary, onChange }: Props
             <label>
               <input type="checkbox" role="switch" checked={snap} onChange={(e) => setSnap(e.target.checked)} /> Snap to grid
             </label>
+            {boundaryOutline && (
+              <label>
+                <input type="checkbox" role="switch" checked={showBoundary} onChange={(e) => setShowBoundary(e.target.checked)} /> Show site boundary
+              </label>
+            )}
           </div>
 
           {selected && (
@@ -188,7 +242,8 @@ export function RoofComposerStep({ wings, materials, boundary, onChange }: Props
 
         <div>
           <PlanCanvas
-            wings={wings}
+            wings={activeWings}
+            boundaryOutline={showBoundary ? boundaryOutline : undefined}
             selectedId={selectedId}
             gridSize={gridSize}
             snap={snap}
@@ -200,9 +255,9 @@ export function RoofComposerStep({ wings, materials, boundary, onChange }: Props
             onUpdate={updateWing}
             onPlace={placeWing}
           />
-          {wings.length > 0 && (
+          {activeWings.length > 0 && (
             <div style={{ marginTop: 8 }}>
-              <ObliquePreview wings={wings} selectedWingId={selectedId} label="Pseudo-3D view" height={220} />
+              <ObliquePreview wings={activeWings} selectedWingId={selectedId} label={`Pseudo-3D view (${variant})`} height={220} roofColor={activeColor} />
             </div>
           )}
         </div>
@@ -211,21 +266,39 @@ export function RoofComposerStep({ wings, materials, boundary, onChange }: Props
       <fieldset className="grid" style={{ marginTop: 16 }}>
         <label>
           Existing material
-          <input value={materials.existing} onChange={(e) => onChange({ materials: { ...materials, existing: e.target.value } })} />
+          <div className="material-row">
+            <input value={materials.existing} onChange={(e) => onChange({ materials: { ...materials, existing: e.target.value } })} />
+            <input
+              type="color"
+              value={roofColorFor(materials, false)}
+              onChange={(e) => onChange({ materials: { ...materials, existingColor: e.target.value } })}
+              aria-label="Existing roof colour"
+              title="Existing roof colour"
+            />
+          </div>
         </label>
         <label>
           Proposed material
-          <input value={materials.proposed} onChange={(e) => onChange({ materials: { ...materials, proposed: e.target.value } })} />
+          <div className="material-row">
+            <input value={materials.proposed} onChange={(e) => onChange({ materials: { ...materials, proposed: e.target.value } })} />
+            <input
+              type="color"
+              value={roofColorFor(materials, true)}
+              onChange={(e) => onChange({ materials: { ...materials, proposedColor: e.target.value } })}
+              aria-label="Proposed roof colour"
+              title="Proposed roof colour"
+            />
+          </div>
         </label>
       </fieldset>
 
-      {wings.length > 0 && (
+      {activeWings.length > 0 && (
         <div className="previews" style={{ marginTop: 8 }}>
-          <PlanScenePreview wings={wings} label="Roof plan (bird's-eye)" />
-          <ElevationScenePreview wings={wings} dir="S" label="South elevation" />
-          <ElevationScenePreview wings={wings} dir="N" label="North elevation" />
-          <ElevationScenePreview wings={wings} dir="E" label="East elevation" />
-          <ElevationScenePreview wings={wings} dir="W" label="West elevation" />
+          <PlanScenePreview wings={activeWings} label={`Roof plan (${variant})`} roofColor={activeColor} />
+          <ElevationScenePreview wings={activeWings} dir="S" label={`South elevation (${variant})`} roofColor={activeColor} />
+          <ElevationScenePreview wings={activeWings} dir="N" label={`North elevation (${variant})`} roofColor={activeColor} />
+          <ElevationScenePreview wings={activeWings} dir="E" label={`East elevation (${variant})`} roofColor={activeColor} />
+          <ElevationScenePreview wings={activeWings} dir="W" label={`West elevation (${variant})`} roofColor={activeColor} />
         </div>
       )}
     </div>

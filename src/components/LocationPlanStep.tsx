@@ -3,7 +3,8 @@ import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import type { Feature, FeatureCollection } from "geojson";
 import type { BoundaryPoint } from "../data/types";
-import { osVectorStyleUrl, osTransformRequest, hasApiKey } from "../os/client";
+import type { StyleSpecification } from "maplibre-gl";
+import { osVectorStyleUrl, osVectorStyleCapped, osTransformRequest, hasApiKey, hasPremiumTiles } from "../os/client";
 import { lookupPostcode } from "../os/postcode";
 import { zoomForScale } from "../os/basemap";
 import { CONTENT_WIDTH_MM, CONTENT_HEIGHT_MM, BASEMAP_PX_PER_MM } from "../pdf/scale";
@@ -37,9 +38,9 @@ function boundaryToGeoJson(boundary: BoundaryPoint[]): FeatureCollection {
       geometry: { type: "LineString", coordinates: boundary.length >= 2 ? [...coords, coords[0]] : coords },
     },
     ...boundary.map(
-      (p): Feature => ({
+      (p, index): Feature => ({
         type: "Feature",
-        properties: {},
+        properties: { index },
         geometry: { type: "Point", coordinates: [p.lng, p.lat] },
       }),
     ),
@@ -56,68 +57,122 @@ export function LocationPlanStep({ address, boundary, mapCentre, locationPlanIma
   const [capturing, setCapturing] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
   const [premiumRequired, setPremiumRequired] = useState(false);
+  const [freePlan, setFreePlan] = useState(false);
 
   boundaryRef.current = boundary;
 
   useEffect(() => {
-    if (!containerRef.current || mapRef.current || !hasApiKey()) return;
-    const centre = mapCentre ?? DEFAULT_CENTRE;
-    const map = new maplibregl.Map({
-      container: containerRef.current,
-      canvasContextAttributes: { preserveDrawingBuffer: true },
-      style: osVectorStyleUrl(),
-      transformRequest: osTransformRequest,
-      attributionControl: { customAttribution: "Contains OS data © Crown copyright and database right" },
-      center: [centre.lng, centre.lat],
-      zoom: 18,
-    });
-    map.addControl(new maplibregl.NavigationControl(), "top-right");
-
-    map.on("load", () => {
-      map.addSource("boundary", { type: "geojson", data: boundaryToGeoJson(boundaryRef.current) });
-      map.addLayer({ id: "boundary-line", type: "line", source: "boundary", filter: ["==", "$type", "LineString"], paint: { "line-color": "#e02424", "line-width": 2 } });
-      map.addLayer({ id: "boundary-points", type: "circle", source: "boundary", filter: ["==", "$type", "Point"], paint: { "circle-color": "#e02424", "circle-radius": 4 } });
-
-      // If the case has no saved position yet but the address has a postcode, jump straight there.
-      if (!mapCentre) {
-        const pc = extractPostcode(address);
-        if (pc) {
-          lookupPostcode(pc).then((point) => {
-            if (point) {
-              map.jumpTo({ center: [point.lng, point.lat], zoom: 19 });
-              onChangeRef.current({ mapCentre: point });
-            }
-          });
-        }
-      }
-    });
-
-    map.on("click", (e) => {
-      if (!drawingRef.current) return;
-      const next = [...boundaryRef.current, { lng: e.lngLat.lng, lat: e.lngLat.lat }];
-      boundaryRef.current = next;
-      onChangeRef.current({ boundary: next });
-    });
-
-    // Free OpenData keys 403 on detailed-zoom tiles ("Premium Data"); the
-    // browser surfaces that as a blocked fetch (status 0) — either way the
-    // style loaded but tiles won't, so explain instead of showing a blank map.
-    map.on("error", (e) => {
-      const msg = e.error?.message ?? "";
-      if (/403|premium|failed to fetch/i.test(msg)) {
-        setPremiumRequired(true);
-      }
-    });
-
+    const container = containerRef.current;
+    if (!container || mapRef.current || !hasApiKey()) return;
+    let cancelled = false;
+    let map: maplibregl.Map | null = null;
     // The container's final size can settle after map construction (fonts/CSS/step
     // switches), leaving a blank canvas until the next interaction — track it.
-    const resizeObserver = new ResizeObserver(() => map.resize());
-    resizeObserver.observe(containerRef.current);
+    const resizeObserver = new ResizeObserver(() => map?.resize());
 
-    mapRef.current = map;
+    (async () => {
+      // Free OpenData keys 403 on z17+ tiles ("Premium Data"). Detect the plan
+      // up front; on free plans cap the tile sources at z16 so MapLibre
+      // overzooms the free vector data — crisp lines, generalised detail —
+      // instead of requesting Premium tiles and going blank.
+      let style: string | StyleSpecification = osVectorStyleUrl();
+      try {
+        if (!(await hasPremiumTiles())) {
+          style = await osVectorStyleCapped();
+          if (!cancelled) setFreePlan(true);
+        }
+      } catch {
+        // fall back to the plain style URL; deep-zoom 403s surface via "error" below
+      }
+      if (cancelled) return;
+
+      const centre = mapCentre ?? DEFAULT_CENTRE;
+      map = new maplibregl.Map({
+        container,
+        canvasContextAttributes: { preserveDrawingBuffer: true },
+        style,
+        transformRequest: osTransformRequest,
+        attributionControl: { customAttribution: "Contains OS data © Crown copyright and database right" },
+        center: [centre.lng, centre.lat],
+        zoom: 18,
+      });
+      map.addControl(new maplibregl.NavigationControl(), "top-right");
+
+      map.on("load", () => {
+        if (!map) return;
+        map.addSource("boundary", { type: "geojson", data: boundaryToGeoJson(boundaryRef.current) });
+        map.addLayer({ id: "boundary-line", type: "line", source: "boundary", filter: ["==", "$type", "LineString"], paint: { "line-color": "#e02424", "line-width": 2 } });
+        map.addLayer({ id: "boundary-points", type: "circle", source: "boundary", filter: ["==", "$type", "Point"], paint: { "circle-color": "#e02424", "circle-radius": 4 } });
+
+        // If the case has no saved position yet but the address has a postcode, jump straight there.
+        if (!mapCentre) {
+          const pc = extractPostcode(address);
+          if (pc) {
+            lookupPostcode(pc).then((point) => {
+              if (point) {
+                map?.jumpTo({ center: [point.lng, point.lat], zoom: 19 });
+                onChangeRef.current({ mapCentre: point });
+              }
+            });
+          }
+        }
+      });
+
+      map.on("click", (e) => {
+        if (!drawingRef.current || !map) return;
+        // Clicks on an existing point are for dragging it, not adding a new one.
+        if (map.getLayer("boundary-points") && map.queryRenderedFeatures(e.point, { layers: ["boundary-points"] }).length > 0) return;
+        const next = [...boundaryRef.current, { lng: e.lngLat.lng, lat: e.lngLat.lat }];
+        boundaryRef.current = next;
+        onChangeRef.current({ boundary: next });
+      });
+
+      // Drag an existing boundary point to move it. The source is updated
+      // directly during the drag; the case is only saved on mouseup.
+      map.on("mousedown", "boundary-points", (e) => {
+        if (!map) return;
+        const idx = e.features?.[0]?.properties?.index;
+        if (typeof idx !== "number") return;
+        e.preventDefault(); // stop the map panning under the drag
+        const m = map;
+        const src = m.getSource("boundary") as maplibregl.GeoJSONSource;
+        const onMove = (ev: maplibregl.MapMouseEvent) => {
+          boundaryRef.current = boundaryRef.current.map((p, i) => (i === idx ? { lng: ev.lngLat.lng, lat: ev.lngLat.lat } : p));
+          src.setData(boundaryToGeoJson(boundaryRef.current));
+        };
+        m.on("mousemove", onMove);
+        m.once("mouseup", () => {
+          m.off("mousemove", onMove);
+          onChangeRef.current({ boundary: boundaryRef.current });
+        });
+      });
+      map.on("mouseenter", "boundary-points", () => {
+        map?.getCanvas().style.setProperty("cursor", "move");
+      });
+      map.on("mouseleave", "boundary-points", () => {
+        map?.getCanvas().style.setProperty("cursor", drawingRef.current ? "crosshair" : "");
+      });
+
+      map.getCanvas().style.setProperty("cursor", drawingRef.current ? "crosshair" : "");
+
+      // Belt-and-braces: if Premium tiles are still requested and blocked
+      // (e.g. the plan probe failed), explain instead of showing a blank map.
+      map.on("error", (e) => {
+        const msg = e.error?.message ?? "";
+        if (/403|premium|failed to fetch/i.test(msg)) {
+          setPremiumRequired(true);
+        }
+      });
+
+      resizeObserver.observe(container);
+      mapRef.current = map;
+    })();
+
     return () => {
+      cancelled = true;
       resizeObserver.disconnect();
-      map.remove();
+      map?.remove();
+      map = null;
       mapRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -135,6 +190,30 @@ export function LocationPlanStep({ address, boundary, mapCentre, locationPlanIma
     const src = map.getSource("boundary") as maplibregl.GeoJSONSource | undefined;
     src?.setData(boundaryToGeoJson(boundary));
   }, [boundary]);
+
+  // A precise crosshair while placing points beats the default grab hand.
+  useEffect(() => {
+    mapRef.current?.getCanvas().style.setProperty("cursor", drawing ? "crosshair" : "");
+  }, [drawing]);
+
+  function undoPoint() {
+    if (boundaryRef.current.length === 0) return;
+    const next = boundaryRef.current.slice(0, -1);
+    boundaryRef.current = next;
+    onChangeRef.current({ boundary: next });
+  }
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z" && boundaryRef.current.length > 0) {
+        e.preventDefault();
+        undoPoint();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   async function handleSearch() {
     const point = await lookupPostcode(postcode);
@@ -196,6 +275,17 @@ export function LocationPlanStep({ address, boundary, mapCentre, locationPlanIma
           <code>.env.example</code>.
         </article>
       )}
+      {freePlan && !premiumRequired && (
+        <article aria-label="Free plan notice">
+          <strong>OS Data Hub free plan detected.</strong> Detailed close-up mapping is Premium Data, so the map is drawing the most detailed free
+          data magnified — boundary drawing and capture work fine, but building outlines are generalised. For full 1:1250 detail, upgrade the project
+          to the <strong>Premium plan</strong> in the{" "}
+          <a href="https://osdatahub.os.uk" target="_blank" rel="noreferrer">
+            OS Data Hub dashboard
+          </a>{" "}
+          (the first £1,000/month of usage is free).
+        </article>
+      )}
       {premiumRequired && (
         <article aria-label="Premium plan required warning">
           <strong>Your OS Data Hub project is on the free plan.</strong> Detailed mapping at 1:1250 planning scales is "Premium Data" and the API is
@@ -214,6 +304,9 @@ export function LocationPlanStep({ address, boundary, mapCentre, locationPlanIma
         </button>
         <button className={drawing ? undefined : "secondary"} onClick={() => setDrawing((d) => !d)} aria-pressed={drawing} disabled={keyMissing}>
           {drawing ? "Stop drawing boundary" : "Draw boundary"}
+        </button>
+        <button className="secondary outline" onClick={undoPoint} disabled={boundary.length === 0} title="Remove the last point (Ctrl+Z)">
+          Undo point
         </button>
         <button className="secondary outline" onClick={clearBoundary} disabled={boundary.length === 0}>
           Clear boundary
@@ -234,7 +327,7 @@ export function LocationPlanStep({ address, boundary, mapCentre, locationPlanIma
       )}
       <small className="muted">
         Click "Draw boundary" then click the map to place a red line tightly around the property. Click points in order around the boundary; the line
-        closes automatically.
+        closes automatically. Drag a point to move it; "Undo point" (or Ctrl+Z) removes the last one.
       </small>
     </div>
   );

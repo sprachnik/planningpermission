@@ -4,6 +4,12 @@
   --pico-font-size: 100%;
 }
 
+/* Without this the last row of preview cards sits flush against the viewport
+   edge and reads as "cropped, can't scroll any further". */
+main.container {
+  padding-bottom: 4rem;
+}
+
 /* Wizard step nav: keep buttons on one row, modest size */
 nav.steps {
   display: flex;
@@ -85,6 +91,20 @@ nav.steps button {
 
 small.muted {
   color: var(--pico-muted-color);
+}
+
+/* Material name + colour swatch on one row */
+.material-row {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.material-row input[type="color"] {
+  width: 3rem;
+  flex-shrink: 0;
+  padding: 0.2rem;
+  margin-bottom: var(--pico-spacing);
 }
 
 /* Roof composer layout: options left, canvas right */

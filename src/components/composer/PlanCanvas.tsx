@@ -14,6 +14,8 @@ import { ROOF_FILL_LIGHT } from "../svgDraw";
 
 interface Props {
   wings: Wing[];
+  /** Site boundary (local metres, centroid at origin) drawn as a faint underlay to trace against. */
+  boundaryOutline?: { x: number; y: number }[];
   selectedId: string | null;
   gridSize: number;
   snap: boolean;
@@ -29,16 +31,28 @@ const MIN_VIEW_W = 18;
 const MIN_VIEW_H = 14;
 const HANDLE = 0.45;
 
-export function PlanCanvas({ wings, selectedId, gridSize, snap, placing, onSelect, onUpdate, onPlace }: Props) {
+export function PlanCanvas({ wings, boundaryOutline, selectedId, gridSize, snap, placing, onSelect, onUpdate, onPlace }: Props) {
   const svgRef = useRef<SVGSVGElement>(null);
   const dragRef = useRef<{ id: string; mode: "move" | "resize"; corner?: string; startX: number; startY: number; orig: Wing } | null>(null);
   const [ghost, setGhost] = useState<{ x: number; y: number } | null>(null);
+  // The viewport auto-fits the content, but re-fitting on every drag frame
+  // makes the grid slide under the pointer — freeze it while dragging.
+  const frozenViewRef = useRef<{ minX: number; minY: number; w: number; h: number } | null>(null);
+  const [, endDragRender] = useState(0);
 
   const bounds = wingsBounds(wings);
-  const viewMinX = Math.min(bounds.minX, 0) - PAD_M;
-  const viewMinY = Math.min(bounds.minY, 0) - PAD_M;
-  const viewW = Math.max(bounds.maxX - viewMinX + PAD_M, MIN_VIEW_W);
-  const viewH = Math.max(bounds.maxY - viewMinY + PAD_M, MIN_VIEW_H);
+  const outlineXs = boundaryOutline?.map((p) => p.x) ?? [];
+  const outlineYs = boundaryOutline?.map((p) => p.y) ?? [];
+  const fitMinX = Math.min(bounds.minX, 0, ...outlineXs) - PAD_M;
+  const fitMinY = Math.min(bounds.minY, 0, ...outlineYs) - PAD_M;
+  const fitted = {
+    minX: fitMinX,
+    minY: fitMinY,
+    w: Math.max(bounds.maxX - fitMinX + PAD_M, ...outlineXs.map((x) => x - fitMinX + PAD_M), MIN_VIEW_W),
+    h: Math.max(bounds.maxY - fitMinY + PAD_M, ...outlineYs.map((y) => y - fitMinY + PAD_M), MIN_VIEW_H),
+  };
+  const view = dragRef.current && frozenViewRef.current ? frozenViewRef.current : fitted;
+  const { minX: viewMinX, minY: viewMinY, w: viewW, h: viewH } = view;
   const viewMaxY = viewMinY + viewH;
 
   // world y is north-up; svg y is down — flip about the viewport
@@ -58,6 +72,7 @@ export function PlanCanvas({ wings, selectedId, gridSize, snap, placing, onSelec
     e.stopPropagation();
     onSelect(wing.id);
     const p = toWorld(e);
+    frozenViewRef.current = view;
     dragRef.current = { id: wing.id, mode: "move", startX: p.x, startY: p.y, orig: wing };
     (e.target as Element).setPointerCapture(e.pointerId);
   }
@@ -66,6 +81,7 @@ export function PlanCanvas({ wings, selectedId, gridSize, snap, placing, onSelec
     e.stopPropagation();
     onSelect(wing.id);
     const p = toWorld(e);
+    frozenViewRef.current = view;
     dragRef.current = { id: wing.id, mode: "resize", corner, startX: p.x, startY: p.y, orig: wing };
     (e.target as Element).setPointerCapture(e.pointerId);
   }
@@ -107,7 +123,11 @@ export function PlanCanvas({ wings, selectedId, gridSize, snap, placing, onSelec
   }
 
   function handleUp(e: React.PointerEvent) {
-    dragRef.current = null;
+    if (dragRef.current) {
+      dragRef.current = null;
+      frozenViewRef.current = null;
+      endDragRender((n) => n + 1); // re-fit the viewport now the drag is done
+    }
     if (placing && ghost) {
       onPlace(ghost.x, ghost.y);
       setGhost(null);
@@ -140,6 +160,22 @@ export function PlanCanvas({ wings, selectedId, gridSize, snap, placing, onSelec
       onPointerDown={() => onSelect(null)}
     >
       {gridLines}
+      {boundaryOutline && boundaryOutline.length >= 3 && (
+        <g pointerEvents="none">
+          <polygon
+            points={boundaryOutline.map((p) => `${p.x},${sy(p.y)}`).join(" ")}
+            fill="#e02424"
+            fillOpacity={0.04}
+            stroke="#e02424"
+            strokeOpacity={0.5}
+            strokeWidth={0.08}
+            strokeDasharray="0.5,0.35"
+          />
+          <text x={Math.min(...boundaryOutline.map((p) => p.x)) + 0.3} y={sy(Math.max(...boundaryOutline.map((p) => p.y))) + 1} fontSize={0.6} fill="#e02424" fillOpacity={0.6}>
+            site boundary
+          </text>
+        </g>
+      )}
       {/* scale bar: one major grid cell labelled */}
       <g fill="var(--pico-muted-color)" stroke="none">
         <text x={viewMinX + 0.4} y={viewMinY + 1} fontSize={0.75}>
@@ -148,6 +184,9 @@ export function PlanCanvas({ wings, selectedId, gridSize, snap, placing, onSelec
         <line x1={viewMinX + 0.4} y1={viewMinY + 1.6} x2={viewMinX + 0.4 + gridSize * 5} y2={viewMinY + 1.6} stroke="var(--pico-muted-color)" strokeWidth={0.08} />
         <text x={viewMinX + 0.4} y={viewMinY + 2.4} fontSize={0.6}>
           {gridSize * 5} m
+        </text>
+        <text x={viewMinX + viewW - 0.4} y={viewMinY + 1} fontSize={0.75} textAnchor="end">
+          {viewW.toFixed(1)} × {viewH.toFixed(1)} m
         </text>
       </g>
       {wings.map((w) => {

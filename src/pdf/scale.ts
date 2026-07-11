@@ -17,6 +17,22 @@ export function mmForRealMetres(metres: number, scaleDenominator: number): numbe
   return (metres * 1000) / scaleDenominator;
 }
 
+/**
+ * The preferred drawing scale, falling back to smaller (1:200) when the
+ * content wouldn't fit the page at 1:100 — planning portals accept either,
+ * and an honest 1:200 beats a clipped 1:100. The scale bar reads the same
+ * denominator so the page stays self-describing.
+ */
+export function fitDrawingScale(extentM: { width: number; height: number }, preferred = 100): number {
+  const candidates = preferred === 100 ? [100, 200] : [preferred];
+  for (const s of candidates) {
+    if (mmForRealMetres(extentM.width, s) <= CONTENT_WIDTH_MM && mmForRealMetres(extentM.height, s) <= CONTENT_HEIGHT_MM) {
+      return s;
+    }
+  }
+  return candidates[candidates.length - 1];
+}
+
 /** A round real-world length (metres) that reads sensibly as a scale bar at this scale. */
 export function niceScaleBarLengthM(scaleDenominator: number): number {
   if (scaleDenominator <= 50) return 2;

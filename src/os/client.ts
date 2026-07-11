@@ -7,7 +7,15 @@
  * in the OS Data Hub dashboard (Project > API keys > restrict by domain).
  */
 
+import type { StyleSpecification } from "maplibre-gl";
+
 const OS_MAPS_LAYER = "Light_3857";
+
+/**
+ * Last tile zoom included in the free OpenData plan; deeper tiles are
+ * "Premium Data" and 403 (observed empirically: z15 loads, z16 is refused).
+ */
+export const FREE_PLAN_MAX_TILE_ZOOM = 15;
 
 export function hasApiKey(): boolean {
   return !!import.meta.env.VITE_OS_API_KEY;
@@ -37,6 +45,65 @@ export function osTransformRequest(url: string): { url: string } {
     url += (url.includes("?") ? "&" : "?") + "key=" + apiKey();
   }
   return { url };
+}
+
+let premiumProbe: Promise<boolean> | null = null;
+
+/**
+ * Whether the key's OS Data Hub project can fetch Premium (z17+) tiles,
+ * detected by requesting a single z17 vector tile. Cached per session, so
+ * Premium projects pay one extra tile transaction per page load.
+ */
+export function hasPremiumTiles(): Promise<boolean> {
+  premiumProbe ??= (async () => {
+    // A z17 tile over central England (~lng -1.3, lat 51.5) — the first Premium-only zoom.
+    const z = FREE_PLAN_MAX_TILE_ZOOM + 1;
+    const x = Math.floor(((-1.3 + 180) / 360) * 2 ** z);
+    const latRad = (51.5 * Math.PI) / 180;
+    const y = Math.floor(((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2) * 2 ** z);
+    try {
+      const res = await fetch(`https://api.os.uk/maps/vector/v1/vts/tile/${z}/${y}/${x}.pbf?srs=3857&key=${apiKey()}`);
+      return res.ok;
+    } catch {
+      return false;
+    }
+  })();
+  return premiumProbe;
+}
+
+/**
+ * The OS vector style reworked for the free plan, so MapLibre overzooms the
+ * free vector data at deeper display zooms (crisp lines, generalised detail)
+ * instead of requesting Premium tiles that 403:
+ *
+ * - Sources are capped at FREE_PLAN_MAX_TILE_ZOOM so deeper tiles are never
+ *   requested. (Inline source properties take precedence over the TileJSON
+ *   the source's `url` points at, so setting maxzoom here is sufficient.)
+ * - The style bands its layers by zoom (e.g. roads at "min 15 / max 16" are
+ *   replaced by detail layers at "min 16") and the detail layers reference
+ *   source-layers that only exist in Premium tiles — left alone, nothing at
+ *   all draws beyond the cap. So layers visible at the cap zoom lose their
+ *   maxzoom (they keep drawing, magnified), and layers that only start
+ *   beyond it are dropped.
+ */
+export async function osVectorStyleCapped(): Promise<StyleSpecification> {
+  const res = await fetch(osVectorStyleUrl());
+  if (!res.ok) {
+    throw new Error(`OS vector style request failed: ${res.status} ${res.statusText}`);
+  }
+  const style = (await res.json()) as StyleSpecification;
+  for (const source of Object.values(style.sources)) {
+    if (source.type === "vector" || source.type === "raster") {
+      source.maxzoom = Math.min(source.maxzoom ?? 22, FREE_PLAN_MAX_TILE_ZOOM);
+    }
+  }
+  style.layers = style.layers.filter((layer) => (layer.minzoom ?? 0) <= FREE_PLAN_MAX_TILE_ZOOM);
+  for (const layer of style.layers) {
+    if ((layer.maxzoom ?? 24) > FREE_PLAN_MAX_TILE_ZOOM) {
+      delete layer.maxzoom;
+    }
+  }
+  return style;
 }
 
 export interface BuildingHeightAttributes {

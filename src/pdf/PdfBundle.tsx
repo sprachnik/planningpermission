@@ -6,26 +6,33 @@ import { planScene, elevationScene } from "../geometry/composite";
 import type { Direction, Scene2D } from "../geometry/composite";
 import { DrawingPage, OutlinePath, LineSegment } from "./DrawingKit";
 import { boundaryCentroid, toLocalMetres, boundaryBoundingBoxM } from "../geometry/latlng";
-import { CONTENT_WIDTH_MM, CONTENT_HEIGHT_MM } from "./scale";
+import { CONTENT_WIDTH_MM, CONTENT_HEIGHT_MM, fitDrawingScale } from "./scale";
+import { roofColorFor, lighten } from "../components/svgDraw";
 
 const WALL_FILL = "#f2f2f2";
-const ROOF_FILL = "#d9d9d9";
+
+/** The wing set a page should draw: proposed pages use proposedWings when the geometry diverged. */
+function wingsFor(planningCase: PlanningCase, proposed: boolean): Wing[] {
+  return (proposed ? planningCase.proposedWings : undefined) ?? planningCase.wings!;
+}
 
 function RoofPlanPage({ planningCase, proposed }: { planningCase: PlanningCase; proposed: boolean }) {
-  const wings = planningCase.wings!;
+  const wings = wingsFor(planningCase, proposed);
   const scene = planScene(wings);
   const material = proposed ? planningCase.materials.proposed : planningCase.materials.existing;
+  const roofFill = lighten(roofColorFor(planningCase.materials, proposed), 0.45);
+  const extent = { width: scene.widthM, height: scene.heightM };
   return (
     <DrawingPage
       title={`${proposed ? "Proposed" : "Existing"} Roof Plan — ${material || "material not set"}`}
       address={planningCase.address}
-      scaleDenominator={100}
-      drawingExtentM={{ width: scene.widthM, height: scene.heightM }}
+      scaleDenominator={fitDrawingScale(extent)}
+      drawingExtentM={extent}
     >
       {(toMm) => (
         <>
           {scene.wings.map((w, i) => (
-            <OutlinePath key={`o${i}`} points={w.outline} toMm={toMm} fill={ROOF_FILL} />
+            <OutlinePath key={`o${i}`} points={w.outline} toMm={toMm} fill={roofFill} />
           ))}
           {scene.wings.map((w, i) => (
             <Fragment key={`l${i}`}>
@@ -42,11 +49,17 @@ function RoofPlanPage({ planningCase, proposed }: { planningCase: PlanningCase; 
   );
 }
 
-function ScenePolygonsPdf({ scene, toMm, offsetX = 0 }: { scene: Scene2D; toMm: (p: Point) => Point; offsetX?: number }) {
+function ScenePolygonsPdf({ scene, toMm, roofColor, offsetX = 0 }: { scene: Scene2D; toMm: (p: Point) => Point; roofColor: string; offsetX?: number }) {
+  const roofLight = lighten(roofColor, 0.22);
   return (
     <>
       {scene.polygons.map((poly, i) => (
-        <OutlinePath key={i} points={poly.points.map((p) => ({ x: p.x + offsetX, y: p.y }))} toMm={toMm} fill={poly.kind === "roof" ? ROOF_FILL : WALL_FILL} />
+        <OutlinePath
+          key={i}
+          points={poly.points.map((p) => ({ x: p.x + offsetX, y: p.y }))}
+          toMm={toMm}
+          fill={poly.kind === "roof" ? (i % 2 ? roofLight : roofColor) : WALL_FILL}
+        />
       ))}
     </>
   );
@@ -61,25 +74,27 @@ function ElevationsPage({
   proposed: boolean;
   dirs: [Direction, Direction];
 }) {
-  const wings = planningCase.wings!;
+  const wings = wingsFor(planningCase, proposed);
   const material = proposed ? planningCase.materials.proposed : planningCase.materials.existing;
+  const roofColor = roofColorFor(planningCase.materials, proposed);
   const sceneA = elevationScene(wings, dirs[0]);
   const sceneB = elevationScene(wings, dirs[1]);
   const gap = 2;
   const bOffset = sceneA.widthM + gap;
   const dirName: Record<Direction, string> = { N: "North", E: "East", S: "South", W: "West" };
+  const extent = { width: sceneA.widthM + gap + sceneB.widthM, height: Math.max(sceneA.heightM, sceneB.heightM) };
 
   return (
     <DrawingPage
       title={`${proposed ? "Proposed" : "Existing"} Elevations (${dirName[dirs[0]]} & ${dirName[dirs[1]]}) — ${material || "material not set"}`}
       address={planningCase.address}
-      scaleDenominator={100}
-      drawingExtentM={{ width: sceneA.widthM + gap + sceneB.widthM, height: Math.max(sceneA.heightM, sceneB.heightM) }}
+      scaleDenominator={fitDrawingScale(extent)}
+      drawingExtentM={extent}
     >
       {(toMm) => (
         <>
-          <ScenePolygonsPdf scene={sceneA} toMm={toMm} />
-          <ScenePolygonsPdf scene={sceneB} toMm={toMm} offsetX={bOffset} />
+          <ScenePolygonsPdf scene={sceneA} toMm={toMm} roofColor={roofColor} />
+          <ScenePolygonsPdf scene={sceneB} toMm={toMm} roofColor={roofColor} offsetX={bOffset} />
           {/* ground lines */}
           <LineSegment from={{ x: -0.8, y: 0 }} to={{ x: sceneA.widthM + 0.8, y: 0 }} toMm={toMm} strokeWidth={0.5} />
           <LineSegment from={{ x: bOffset - 0.8, y: 0 }} to={{ x: bOffset + sceneB.widthM + 0.8, y: 0 }} toMm={toMm} strokeWidth={0.5} />

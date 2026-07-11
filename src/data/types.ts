@@ -20,6 +20,9 @@ export interface RoofParams {
 export interface MaterialLabels {
   existing: string;
   proposed: string;
+  /** Roof swatch colours (hex) tinting roof planes in previews and the PDF */
+  existingColor?: string;
+  proposedColor?: string;
 }
 
 /**
@@ -52,5 +55,10 @@ export interface PlanningCase {
   /** Legacy single-block model; superseded by `wings` (migrated on load) */
   roof?: RoofParams;
   wings?: Wing[];
+  /**
+   * Proposed geometry when it differs from existing (extensions, dormers…).
+   * Undefined means "same as `wings`" — the like-for-like material change.
+   */
+  proposedWings?: Wing[];
   materials: MaterialLabels;
 }
