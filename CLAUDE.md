@@ -137,6 +137,12 @@ PDF via `@react-pdf/renderer`, keyed by `updatedAt`).
   403 even for free-plan zooms, and a Vite dev server that lands on an
   unlisted port (5175 when 5173/5174 are busy) gets a blank map. Test
   through a browser context on an allowed origin.
+- **Vite is pinned to 7.** The rolldown-based Vite 8 mis-bundles
+  maplibre-gl's web worker ("GV/f is not defined" inside the worker blob):
+  GeoJSON sources render nothing in production builds only — dev serves
+  unbundled modules and works, which makes it easy to ship broken. See the
+  comment in vite.config.ts; re-verify boundary drawing on a production
+  build before upgrading Vite.
 - **MapLibre zoom ≠ OSM zoom.** MapLibre/Mapbox zoom follows the 512px-tile
   convention — one level offset from the classic 256px formula
   (156543·cos(lat)/2^z). `os/basemap.ts` uses the 512px constant (78271.5);
