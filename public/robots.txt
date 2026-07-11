@@ -1,0 +1,5 @@
+User-agent: *
+Allow: /
+
+# Machine-readable summary for LLM/agent crawlers
+# See /llms.txt

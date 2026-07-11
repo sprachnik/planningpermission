@@ -13,21 +13,26 @@
 import type { Wing } from "../data/types";
 import type { Point, RoofPlanGeometry } from "./roof";
 import { computeRoofPlan } from "./roof";
-import { placeWingFaces, faceNormal, faceCentroid, wingPlanSize } from "./faces3d";
+import { placeWingFaces, faceNormal, faceCentroid, wingPlanSize, wingRotation, rotateLocalPoint, CHIMNEY_ALONG_M, CHIMNEY_ACROSS_M } from "./faces3d";
 import type { Face3D, Vec3 } from "./faces3d";
 
 export type Direction = "N" | "E" | "S" | "W";
 
 export interface ScenePolygon {
   points: Point[];
-  kind: "wall" | "roof";
+  kind: Face3D["kind"];
   wingId: string;
+  openingId?: string;
 }
 
 export interface Scene2D {
   polygons: ScenePolygon[];
   widthM: number;
   heightM: number;
+  /** Projection-space offset subtracted to normalise the scene to (0,0):
+   *  scenePoint = project(world) − origin. Lets editors project extra
+   *  geometry (grids, guides) into the same space. */
+  origin: Point;
 }
 
 export interface PlacedPlan {
@@ -36,6 +41,8 @@ export interface PlacedPlan {
   ridgeLine: [Point, Point] | null;
   hipLines: [Point, Point][];
   slopeArrow: [Point, Point] | null;
+  /** Chimney stack footprint, when the wing has one */
+  chimney?: Point[];
 }
 
 export interface PlanScene {
@@ -47,7 +54,29 @@ export interface PlanScene {
 }
 
 function transformPlanPoint(p: Point, wing: Wing): Point {
-  return wing.rotated ? { x: p.y + wing.x, y: p.x + wing.y } : { x: p.x + wing.x, y: p.y + wing.y };
+  const r = rotateLocalPoint(p.x, p.y, wingRotation(wing), wing.widthM, wing.depthM);
+  return { x: r.x + wing.x, y: r.y + wing.y };
+}
+
+/** Chimney footprint in the wing's local frame (also used by the plan editor). */
+export function chimneyLocalRect(wing: Wing): { cx: number; cy: number; a: number; b: number } | undefined {
+  if (!wing.chimney || wing.roofType === "mono-pitch" || wing.roofType === "flat") return undefined;
+  const a = (wing.chimney.alongM ?? CHIMNEY_ALONG_M) / 2;
+  const b = (wing.chimney.acrossM ?? CHIMNEY_ACROSS_M) / 2;
+  const cx = Math.min(Math.max(wing.chimney.offsetM, a + 0.1), wing.widthM - a - 0.1);
+  return { cx, cy: wing.depthM / 2, a, b };
+}
+
+function chimneyPlanRect(wing: Wing): Point[] | undefined {
+  const r = chimneyLocalRect(wing);
+  if (!r) return undefined;
+  const { cx, cy, a, b } = r;
+  return [
+    { x: cx - a, y: cy - b },
+    { x: cx + a, y: cy - b },
+    { x: cx + a, y: cy + b },
+    { x: cx - a, y: cy + b },
+  ];
 }
 
 function transformPlanGeometry(plan: RoofPlanGeometry, wing: Wing): PlacedPlan {
@@ -58,6 +87,7 @@ function transformPlanGeometry(plan: RoofPlanGeometry, wing: Wing): PlacedPlan {
     ridgeLine: plan.ridgeLine ? [t(plan.ridgeLine[0]), t(plan.ridgeLine[1])] : null,
     hipLines: plan.hipLines.map(([a, b]) => [t(a), t(b)] as [Point, Point]),
     slopeArrow: plan.slopeArrow ? [t(plan.slopeArrow[0]), t(plan.slopeArrow[1])] : null,
+    chimney: chimneyPlanRect(wing)?.map(t),
   };
 }
 
@@ -77,6 +107,7 @@ export function planScene(wings: Wing[]): PlanScene {
       ridgeLine: p.ridgeLine ? [shift(p.ridgeLine[0]), shift(p.ridgeLine[1])] : null,
       hipLines: p.hipLines.map(([a, b]) => [shift(a), shift(b)] as [Point, Point]),
       slopeArrow: p.slopeArrow ? [shift(p.slopeArrow[0]), shift(p.slopeArrow[1])] : null,
+      chimney: p.chimney?.map(shift),
     })),
     minX,
     minY,
@@ -101,9 +132,9 @@ function buildScene(faces: TaggedFace[], toViewer: Vec3, project: (p: Vec3) => P
   const visible = faces.filter((f) => dot(faceNormal(f.pts), toViewer) > 1e-9);
   // painter: far faces first
   visible.sort((a, b) => depth(faceCentroid(b.pts)) - depth(faceCentroid(a.pts)));
-  const polygons = visible.map((f) => ({ kind: f.kind, wingId: f.wingId, points: f.pts.map(project) }));
+  const polygons = visible.map((f) => ({ kind: f.kind, wingId: f.wingId, openingId: f.openingId, points: f.pts.map(project) }));
   const allPts = polygons.flatMap((p) => p.points);
-  if (allPts.length === 0) return { polygons: [], widthM: 0, heightM: 0 };
+  if (allPts.length === 0) return { polygons: [], widthM: 0, heightM: 0, origin: { x: 0, y: 0 } };
   const minX = Math.min(...allPts.map((p) => p.x));
   const minY = Math.min(...allPts.map((p) => p.y));
   const maxX = Math.max(...allPts.map((p) => p.x));
@@ -111,7 +142,7 @@ function buildScene(faces: TaggedFace[], toViewer: Vec3, project: (p: Vec3) => P
   for (const poly of polygons) {
     poly.points = poly.points.map((p) => ({ x: p.x - minX, y: p.y - minY }));
   }
-  return { polygons, widthM: maxX - minX, heightM: maxY - minY };
+  return { polygons, widthM: maxX - minX, heightM: maxY - minY, origin: { x: minX, y: minY } };
 }
 
 /**
@@ -140,8 +171,10 @@ export function elevationScene(wings: Wing[], dir: Direction): Scene2D {
 }
 
 // Cabinet-style oblique: depth recedes up-right at reduced scale
-const KX = 0.45;
-const KY = 0.26;
+export const OBLIQUE_KX = 0.45;
+export const OBLIQUE_KY = 0.26;
+const KX = OBLIQUE_KX;
+const KY = OBLIQUE_KY;
 
 /** Pseudo-3D view of the whole composition, for placement feedback. */
 export function obliqueScene(wings: Wing[]): Scene2D {

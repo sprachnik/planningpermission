@@ -42,6 +42,10 @@ export function computeRoofPlan(params: RoofParams): RoofPlanGeometry {
     { x: 0, y: D },
   ];
 
+  if (roofType === "flat") {
+    return { outline, ridgeLine: null, hipLines: [], apex: null, slopeArrow: null, ridgeHeightM: eaveHeightM };
+  }
+
   if (roofType === "mono-pitch") {
     const highEdge = params.highEdge ?? "width-end";
     const run = highEdge.startsWith("width") ? W : D;
@@ -111,6 +115,22 @@ export function computeElevation(params: RoofParams, view: ElevationView): Eleva
   const { widthM: W, depthM: D, roofType, eaveHeightM } = params;
   const plan = computeRoofPlan(params);
   const ridgeH = plan.ridgeHeightM;
+
+  if (roofType === "flat") {
+    const extent = view === "A" ? D : W;
+    return {
+      widthM: extent,
+      eaveHeightM,
+      maxHeightM: eaveHeightM,
+      profile: [
+        { x: 0, y: 0 },
+        { x: 0, y: eaveHeightM },
+        { x: extent, y: eaveHeightM },
+        { x: extent, y: 0 },
+      ],
+      roofProfile: null,
+    };
+  }
 
   if (roofType === "mono-pitch") {
     const highEdge = params.highEdge ?? "width-end";

@@ -1,5 +1,10 @@
 # roofplan
 
+Branded **"Auto-Planning UK"** in the UI (wordmark, login gate, footer). Private
+tool, not open source. Docs in `docs/`: `OVERVIEW.md` (architecture TLDR +
+expansion levers), `value-research.md` (commercial case),
+`automation-ideas.md` (auto-trace/photo/LiDAR ideation).
+
 Generates the drawing set a UK householder planning application needs for a
 like-for-like roof material change (e.g. Kent peg tile → grey slate):
 Location Plan (1:1250/1:2500), Existing/Proposed Roof Plans and four
@@ -12,12 +17,17 @@ bundled as one PDF for the Planning Portal.
 npm run dev      # Vite dev server (localhost:5173, or next free port)
 npm run build    # tsc -b && vite build → dist/
 npm run lint     # oxlint
+npm test         # vitest — geometry invariants + PDF smoke render
 ```
 
-No test suite. Verification is done by driving the app headlessly: install
-`playwright` as a temporary devDependency, script the wizard (create case →
-place blocks → download PDF), screenshot each step, then uninstall. Check
-`console`/`pageerror` events — the app should produce zero.
+Tests cover the pure layers: `src/geometry/composite.test.ts` (projection
+invariants, rotation/normals regressions, openings/chimney), `src/pdf/scale.test.ts`
+(scale maths) and `src/pdf/pdfBundle.test.tsx` (renders the real PDF in Node,
+asserts page count). UI verification is still done by driving the app
+headlessly: install `playwright` as a temporary devDependency, script the
+wizard (sign in via the stubbed auth → create case → place blocks → download
+PDF), screenshot each step, then uninstall. Check `console`/`pageerror`
+events — the app should produce zero (bar the documented free-plan CORS probe).
 
 ## Environment
 
@@ -41,8 +51,12 @@ password protection).
 
 - `src/data/types.ts` — `PlanningCase` is the unit of persistence. The house
   is modelled as `wings: Wing[]`: axis-aligned rectangular blocks on a shared
-  plan grid, each with its own roof type (gable/hip/mono-pitch), pitch, eave
-  height, and optional 90° rotation. `proposedWings` holds diverged proposed
+  plan grid, each with its own roof type (gable/hip/mono-pitch/flat), pitch,
+  eave height, quarter-turn rotation (`rotationDeg` 0/90/180/270; legacy
+  `rotated` boolean = 90), openings (windows/doors per wall),
+  optional ridge chimney, and an optional per-block roof material override
+  (`material`/`materialColor`, plus `materialUnchanged` for proposed blocks
+  keeping their existing covering). `proposedWings` holds diverged proposed
   geometry (extensions/dormers); undefined means "same as existing" — the
   like-for-like material change. `materials` carries labels plus optional
   roof swatch colours (defaults in `components/svgDraw.ts`). `roof` is the
@@ -62,8 +76,8 @@ Single source of truth: parametric wings → everything else is derived.
   single-block elevation profiles. Pure functions, no rendering deps.
 - `src/geometry/faces3d.ts` — builds the complete 3D solid (all walls + all
   roof planes) for one wing, places it on the plan grid (translate +
-  optional axis-swap; point order reversed on rotation to keep Newell
-  normals outward).
+  quarter-turn rotation about the footprint — true rotations preserve
+  winding, so Newell normals stay outward with no point-order tricks).
 - `src/geometry/composite.ts` — projects the combined solids:
   - `elevationScene(wings, dir)` — orthographic N/E/S/W elevations.
     Convention: an "S" elevation is what you see standing south looking
@@ -107,10 +121,11 @@ Single source of truth: parametric wings → everything else is derived.
 
 ### UI flow (`src/App.tsx`)
 
-Case list → 4-step wizard per case: Details (address; postcode is extracted
-and drives the map) → Location Plan (`LocationPlanStep`: MapLibre vector
-basemap, click-to-draw red-line boundary with drag-to-move points and
-undo, capture at chosen scale via canvas snapshot) → Roof & Elevations
+Case list → 3-step wizard per case (shared `Shell` header/footer chrome):
+Location Plan (`LocationPlanStep`: MapLibre vector basemap, postcode search —
+the searched postcode is saved as the case's `address`, naming the case, PDF
+filename and title blocks — click-to-draw red-line boundary with drag-to-move
+points and undo, capture at chosen scale via canvas snapshot) → Roof & Elevations
 (`components/composer/`: existing/proposed toggle — proposed is seeded as
 a copy of existing on first open — palette + plan canvas with grid/snap/
 drag/resize, site-boundary underlay traced from step 2, pseudo-3D + four
@@ -128,7 +143,8 @@ PDF via `@react-pdf/renderer`, keyed by `updatedAt`).
   blank beige map): layers visible at z15 lose their `maxzoom`, layers with
   `minzoom > 15` are dropped. MapLibre then *overzooms* the free vector
   data — crisp at planning zooms, just generalised building outlines — and
-  `LocationPlanStep` shows an info banner. A hard tile-failure banner
+  App.tsx shows an amber footer pill (tooltip carries the detail; it re-uses
+  the same cached `hasPremiumTiles()` probe). A hard tile-failure banner
   remains as belt-and-braces if the probe misdetects. The probe logs one
   unavoidable CORS console error on free plans (OS 403s carry no CORS
   headers) — expected, not a bug.
@@ -155,9 +171,13 @@ PDF via `@react-pdf/renderer`, keyed by `updatedAt`).
   `ResizeObserver` calling `map.resize()` fixes "map doesn't draw until
   zoom". `canvasContextAttributes: { preserveDrawingBuffer: true }` is
   required for `toDataURL()` capture.
-- **Rotation = transpose**, which mirrors winding — `placeWingFaces`
-  reverses point order for rotated wings so normals stay outward. Break
-  this and elevations silently lose faces to the backface cull.
+- **Rotation is true quarter turns** (`rotationDeg` 0/90/180/270, CCW about
+  the footprint, via `rotateLocalPoint` in faces3d.ts) — rotations preserve
+  winding so Newell normals stay outward. The old `rotated` boolean was a
+  *transpose* (a mirror, needing point-order reversal); it's still read as
+  90° via `wingRotation()` but never written. If you ever add a mirroring
+  transform again, you must reverse point order or elevations silently lose
+  faces to the backface cull.
 - **react-pdf has no `<g>`** inside its `Svg`; use `Fragment`.
 - **Planning validity**: drawings should fairly represent the real house.
   The block model approximates shape well but has no openings
@@ -165,9 +185,13 @@ PDF via `@react-pdf/renderer`, keyed by `updatedAt`).
   see roadmap before treating output as submission-ready for complex
   houses.
 
-## Roadmap (agreed with owner, not yet built)
+## Roadmap (agreed with owner)
 
-1. Openings/chimney editor on elevations (biggest validity win, cheap).
+1. ~~Openings/chimney editor on elevations~~ — DONE (v1): per-wing
+   windows/doors as coplanar faces drawn proud of their wall (`faces3d.ts`),
+   ridge chimney box, composer editor section, rendered in previews + PDF.
 2. Photo tracing for elevations (scale from a known dimension).
 3. True valley/junction lines where blocks intersect.
 4. Netlify deploy + domain-restricted key end-to-end check.
+5. Auto-trace from OS NGD footprints / INSPIRE parcels / LiDAR — see
+   `docs/automation-ideas.md`.

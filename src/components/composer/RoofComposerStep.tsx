@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
-import type { Wing, MaterialLabels, BoundaryPoint, RoofParams } from "../../data/types";
+import type { Wing, MaterialLabels, BoundaryPoint, RoofParams, Opening } from "../../data/types";
 import { getNearestBuilding, isHeightConfident } from "../../os/client";
 import { boundaryCentroid, toLocalMetres } from "../../geometry/latlng";
 import { PlanCanvas } from "./PlanCanvas";
-import { ObliquePreview, ElevationScenePreview, PlanScenePreview, RoofTypeThumbnail } from "../RoofPreviewSvg";
+import { SceneEditor, type EditorView } from "./ObliqueEditor";
+import { ElevationScenePreview, ObliquePreview, PlanScenePreview, RoofTypeThumbnail } from "../RoofPreviewSvg";
 import { roofColorFor } from "../svgDraw";
+import { wingRotation, type QuarterTurn } from "../../geometry/faces3d";
 
 interface Props {
   wings: Wing[];
@@ -12,30 +14,57 @@ interface Props {
   proposedWings?: Wing[];
   materials: MaterialLabels;
   boundary: BoundaryPoint[];
-  onChange: (updates: { wings?: Wing[]; proposedWings?: Wing[]; materials?: MaterialLabels }) => void;
+  /** Composer-only rotation of the boundary underlay (never the boundary itself) */
+  boundaryRotationDeg?: number;
+  onChange: (updates: { wings?: Wing[]; proposedWings?: Wing[]; materials?: MaterialLabels; composerBoundaryRotationDeg?: number }) => void;
 }
 
 type Variant = "existing" | "proposed";
+
+const DIR_NAMES = { N: "North", E: "East", S: "South", W: "West" } as const;
 
 const PRESETS: { label: string; params: RoofParams }[] = [
   { label: "Gable", params: { widthM: 8, depthM: 6, roofType: "gable", pitchDegrees: 40, eaveHeightM: 5 } },
   { label: "Hip", params: { widthM: 8, depthM: 6, roofType: "hip", pitchDegrees: 40, eaveHeightM: 5 } },
   { label: "Lean-to / mono", params: { widthM: 4, depthM: 3, roofType: "mono-pitch", pitchDegrees: 15, eaveHeightM: 2.4, highEdge: "depth-end" } },
+  { label: "Flat", params: { widthM: 4, depthM: 3, roofType: "flat", pitchDegrees: 0, eaveHeightM: 3 } },
 ];
 
-export function RoofComposerStep({ wings, proposedWings, materials, boundary, onChange }: Props) {
-  const [selectedId, setSelectedId] = useState<string | null>(wings[0]?.id ?? null);
+export function RoofComposerStep({ wings, proposedWings, materials, boundary, boundaryRotationDeg = 0, onChange }: Props) {
+  // Nothing selected on entry: the sidebar opens with just "Add a block".
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedOpeningId, setSelectedOpeningId] = useState<string | null>(null);
+  // Panel expansion follows selection: picking/placing a block opens its
+  // panel and folds the palette; deselecting reverses that.
+  const [addOpen, setAddOpen] = useState(true);
+  const [blockOpen, setBlockOpen] = useState(false);
+  const [openingsOpen, setOpeningsOpen] = useState(false);
+  const [confirmDeleteBlock, setConfirmDeleteBlock] = useState(false);
   const [gridSize, setGridSize] = useState(0.5);
   const [snap, setSnap] = useState(true);
   const [placing, setPlacing] = useState<Wing | null>(null);
   const [prefillStatus, setPrefillStatus] = useState<string | null>(null);
   const [variant, setVariant] = useState<Variant>("existing");
   const [showBoundary, setShowBoundary] = useState(true);
+  /** Which projection fills the main editing viewport */
+  const [mainView, setMainView] = useState<EditorView>("3d");
 
   // Which wing set is being edited. Proposed is seeded as a copy of existing
   // the first time it's opened, so a pure material change never diverges.
   const activeWings = variant === "proposed" ? (proposedWings ?? wings) : wings;
   const activeColor = roofColorFor(materials, variant === "proposed");
+  const activeMaterial = (variant === "proposed" ? materials.proposed : materials.existing) || "material not set";
+  // Per-block roof colour overrides for the previews. Proposed blocks marked
+  // "covering unchanged" show their existing colour instead.
+  const wingColors = Object.fromEntries(
+    activeWings.flatMap((w): [string, string][] => {
+      if (variant === "proposed" && w.materialUnchanged) {
+        const existing = wings.find((e) => e.id === w.id);
+        return [[w.id, existing?.materialColor ?? roofColorFor(materials, false)]];
+      }
+      return w.materialColor ? [[w.id, w.materialColor]] : [];
+    }),
+  );
 
   function setActiveWings(next: Wing[]) {
     onChange(variant === "proposed" ? { proposedWings: next } : { wings: next });
@@ -47,6 +76,7 @@ export function RoofComposerStep({ wings, proposedWings, materials, boundary, on
     }
     setVariant(next);
     setPlacing(null);
+    setSelectedOpeningId(null);
   }
 
   const selected = activeWings.find((w) => w.id === selectedId) ?? null;
@@ -56,8 +86,15 @@ export function RoofComposerStep({ wings, proposedWings, materials, boundary, on
   const boundaryOutline = useMemo(() => {
     if (boundary.length < 3) return undefined;
     const centroid = boundaryCentroid(boundary);
-    return boundary.map((p) => toLocalMetres(p, centroid));
-  }, [boundary]);
+    const local = boundary.map((p) => toLocalMetres(p, centroid));
+    if (!boundaryRotationDeg) return local;
+    // rotate the underlay about its centroid (display aid; the saved boundary
+    // and the Location Plan are untouched)
+    const rad = (boundaryRotationDeg * Math.PI) / 180;
+    const cos = Math.cos(rad);
+    const sin = Math.sin(rad);
+    return local.map((p) => ({ x: p.x * cos - p.y * sin, y: p.x * sin + p.y * cos }));
+  }, [boundary, boundaryRotationDeg]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -67,11 +104,53 @@ export function RoofComposerStep({ wings, proposedWings, materials, boundary, on
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
+  useEffect(() => {
+    if (selectedId) {
+      setAddOpen(false);
+      setBlockOpen(true);
+    } else {
+      setAddOpen(true);
+    }
+  }, [selectedId]);
+
+  useEffect(() => {
+    if (selectedOpeningId) setOpeningsOpen(true);
+  }, [selectedOpeningId]);
+
+  // Delete removes the selected opening outright, or asks before removing a
+  // block. Rebound every render so the closures stay fresh; skipped while
+  // typing in a field.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable)) return;
+      if (e.key === "r" || e.key === "R") {
+        // rotate the selected block a quarter turn (0 → 90 → 180 → 270)
+        if (selected) updateWing({ ...selected, rotationDeg: ((wingRotation(selected) + 90) % 360) as QuarterTurn, rotated: undefined });
+        return;
+      }
+      if (e.key !== "Delete") return;
+      if (selectedOpeningId) {
+        removeOpening(selectedOpeningId);
+        setSelectedOpeningId(null);
+      } else if (selectedId) {
+        setConfirmDeleteBlock(true);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  });
+
   function updateWing(updated: Wing) {
     setActiveWings(activeWings.map((w) => (w.id === updated.id ? updated : w)));
   }
 
   function startPlacing(preset: { label: string; params: RoofParams }) {
+    // clicking the active palette button again cancels placing
+    if (placing?.roofType === preset.params.roofType) {
+      setPlacing(null);
+      return;
+    }
     setPlacing({
       ...preset.params,
       id: crypto.randomUUID(),
@@ -93,6 +172,42 @@ export function RoofComposerStep({ wings, proposedWings, materials, boundary, on
     if (!selected) return;
     setActiveWings(activeWings.filter((w) => w.id !== selected.id));
     setSelectedId(null);
+    setSelectedOpeningId(null);
+    setConfirmDeleteBlock(false);
+  }
+
+  // Wall names in compass terms, per the wing's quarter-turn rotation (CCW).
+  const SIDE_LABELS: Record<QuarterTurn, Record<Opening["side"], string>> = {
+    0: { front: "South", back: "North", left: "West", right: "East" },
+    90: { front: "East", back: "West", left: "South", right: "North" },
+    180: { front: "North", back: "South", left: "East", right: "West" },
+    270: { front: "West", back: "East", left: "North", right: "South" },
+  };
+  const sideLabels = SIDE_LABELS[selected ? wingRotation(selected) : 0];
+
+  function addOpening(type: Opening["type"]) {
+    if (!selected) return;
+    const opening: Opening = {
+      id: crypto.randomUUID(),
+      type,
+      side: "front",
+      offsetM: 1,
+      widthM: type === "door" ? 0.9 : 1.2,
+      heightM: type === "door" ? 2 : 1.2,
+      sillM: type === "door" ? 0 : 0.9,
+    };
+    updateWing({ ...selected, openings: [...(selected.openings ?? []), opening] });
+    setSelectedOpeningId(opening.id); // select + expand the new opening
+  }
+
+  function updateOpening(id: string, patch: Partial<Opening>) {
+    if (!selected) return;
+    updateWing({ ...selected, openings: (selected.openings ?? []).map((o) => (o.id === id ? { ...o, ...patch } : o)) });
+  }
+
+  function removeOpening(id: string) {
+    if (!selected) return;
+    updateWing({ ...selected, openings: (selected.openings ?? []).filter((o) => o.id !== id) });
   }
 
   async function prefillHeights() {
@@ -126,14 +241,30 @@ export function RoofComposerStep({ wings, proposedWings, materials, boundary, on
   return (
     <div>
       <div className="toolbar" style={{ marginBottom: 12 }}>
-        <button className={variant === "existing" ? undefined : "secondary outline"} onClick={() => switchVariant("existing")} aria-pressed={variant === "existing"}>
-          Existing
-        </button>
-        <button className={variant === "proposed" ? undefined : "secondary outline"} onClick={() => switchVariant("proposed")} aria-pressed={variant === "proposed"}>
-          Proposed
-        </button>
+        <div className="segmented">
+          <button
+            className={variant === "existing" ? "seg active" : "seg"}
+            onClick={() => switchVariant("existing")}
+            aria-pressed={variant === "existing"}
+            data-tooltip="The house as it stands today"
+          >
+            Existing
+          </button>
+          <button
+            className={variant === "proposed" ? "seg active" : "seg"}
+            onClick={() => switchVariant("proposed")}
+            aria-pressed={variant === "proposed"}
+            data-tooltip="After the works — starts as a copy of the existing house"
+          >
+            Proposed
+          </button>
+        </div>
         {variant === "proposed" && (
-          <button className="secondary outline" onClick={() => onChange({ proposedWings: wings.map((w) => ({ ...w })) })} title="Discard proposed geometry changes and copy the existing house again">
+          <button
+            className="secondary outline"
+            onClick={() => onChange({ proposedWings: wings.map((w) => ({ ...w })) })}
+            data-tooltip="Discard proposed geometry changes and copy the existing house again"
+          >
             Reset to existing
           </button>
         )}
@@ -141,26 +272,49 @@ export function RoofComposerStep({ wings, proposedWings, materials, boundary, on
           Editing the <strong>{variant}</strong> house{variant === "proposed" ? " — change blocks here for extensions/dormers; leave as-is for a pure material change" : ""}
         </small>
       </div>
+      {confirmDeleteBlock && selected && (
+        <div className="modal-overlay" onClick={() => setConfirmDeleteBlock(false)}>
+          <div className="modal" role="dialog" aria-modal="true" aria-label="Confirm block deletion" onClick={(e) => e.stopPropagation()}>
+            <h3>Delete this block?</h3>
+            <p>
+              <strong>{selected.name}</strong> and its openings will be removed from the {variant} house.
+            </p>
+            <div className="modal-actions">
+              <button className="secondary outline" onClick={() => setConfirmDeleteBlock(false)} autoFocus>
+                Cancel
+              </button>
+              <button className="danger" onClick={deleteSelected}>
+                Delete block
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       <div className="composer">
+        {/* Sidebar is its own sticky, independently-scrolling column so a long
+            openings list never pushes the drawings down the page. */}
         <aside>
-          <h6 style={{ marginBottom: 8 }}>Add a block</h6>
-          <div className="palette">
+          <details open={addOpen} onToggle={(e) => setAddOpen((e.currentTarget as HTMLDetailsElement).open)} className="panel">
+            <summary>Add a block</summary>
+            <div className="palette">
             {PRESETS.map((p) => (
               <button
                 key={p.label}
                 className={placing?.roofType === p.params.roofType ? undefined : "secondary outline"}
                 onClick={() => startPlacing(p)}
-                title={`Click, then click the canvas to place a ${p.label} block`}
+                title={`Click, then click the canvas to place a ${p.label} block (click again to cancel)`}
               >
                 <RoofTypeThumbnail params={p.params} />
                 <span>{p.label}</span>
               </button>
             ))}
           </div>
-          {placing && <small className="muted">Click on the canvas to place it (Esc/click here to cancel)</small>}
+            {placing && <small className="muted">Click on the canvas to place it (Esc/click here to cancel)</small>}
+          </details>
 
-          <h6 style={{ margin: "16px 0 8px" }}>Grid</h6>
-          <div className="grid-controls">
+          <details className="panel">
+            <summary>Grid &amp; view</summary>
+            <div className="grid-controls">
             <label>
               Cell size
               <select value={gridSize} onChange={(e) => setGridSize(Number(e.target.value))}>
@@ -173,15 +327,29 @@ export function RoofComposerStep({ wings, proposedWings, materials, boundary, on
               <input type="checkbox" role="switch" checked={snap} onChange={(e) => setSnap(e.target.checked)} /> Snap to grid
             </label>
             {boundaryOutline && (
-              <label>
-                <input type="checkbox" role="switch" checked={showBoundary} onChange={(e) => setShowBoundary(e.target.checked)} /> Show site boundary
-              </label>
+              <>
+                <label>
+                  <input type="checkbox" role="switch" checked={showBoundary} onChange={(e) => setShowBoundary(e.target.checked)} /> Show site boundary
+                </label>
+                <label>
+                  Rotate boundary underlay (°)
+                  <input
+                    type="number"
+                    step="1"
+                    value={boundaryRotationDeg}
+                    onChange={(e) => onChange({ composerBoundaryRotationDeg: Number(e.target.value) })}
+                    title="Turns the traced plot to line up with the blocks — the real boundary and Location Plan are unchanged"
+                  />
+                </label>
+              </>
             )}
-          </div>
+            </div>
+          </details>
 
           {selected && (
             <>
-              <h6 style={{ margin: "16px 0 8px" }}>Selected: {selected.name}</h6>
+              <details open={blockOpen} onToggle={(e) => setBlockOpen((e.currentTarget as HTMLDetailsElement).open)} className="panel">
+                <summary>Block — {selected.name}</summary>
               <label>
                 Name
                 <input value={selected.name} onChange={(e) => updateWing({ ...selected, name: e.target.value })} />
@@ -192,6 +360,7 @@ export function RoofComposerStep({ wings, proposedWings, materials, boundary, on
                   <option value="gable">Gable</option>
                   <option value="hip">Hip</option>
                   <option value="mono-pitch">Mono-pitch</option>
+                  <option value="flat">Flat</option>
                 </select>
               </label>
               <div className="two-col">
@@ -203,10 +372,12 @@ export function RoofComposerStep({ wings, proposedWings, materials, boundary, on
                   Depth (m)
                   <input type="number" step="0.1" value={selected.depthM} onChange={(e) => updateWing({ ...selected, depthM: Number(e.target.value) })} />
                 </label>
-                <label>
-                  Pitch (°)
-                  <input type="number" step="1" value={selected.pitchDegrees} onChange={(e) => updateWing({ ...selected, pitchDegrees: Number(e.target.value) })} />
-                </label>
+                {selected.roofType !== "flat" && (
+                  <label>
+                    Pitch (°)
+                    <input type="number" step="1" value={selected.pitchDegrees} onChange={(e) => updateWing({ ...selected, pitchDegrees: Number(e.target.value) })} />
+                  </label>
+                )}
                 <label>
                   Eaves (m)
                   <input type="number" step="0.1" value={selected.eaveHeightM} onChange={(e) => updateWing({ ...selected, eaveHeightM: Number(e.target.value) })} />
@@ -224,23 +395,177 @@ export function RoofComposerStep({ wings, proposedWings, materials, boundary, on
                 </label>
               )}
               <label>
-                <input type="checkbox" role="switch" checked={!!selected.rotated} onChange={(e) => updateWing({ ...selected, rotated: e.target.checked })} /> Rotate 90°
-                (ridge north–south)
+                Rotation
+                <select
+                  value={wingRotation(selected)}
+                  onChange={(e) => updateWing({ ...selected, rotationDeg: Number(e.target.value) as QuarterTurn, rotated: undefined })}
+                  title="Quarter turns anticlockwise — also the ⟳ button on the plan or the R key"
+                >
+                  <option value={0}>0° — ridge east–west</option>
+                  <option value={90}>90° — ridge north–south</option>
+                  <option value={180}>180° — flipped</option>
+                  <option value={270}>270° — ridge north–south, flipped</option>
+                </select>
               </label>
-              <div className="toolbar">
-                <button className="secondary" onClick={prefillHeights}>
+              {variant === "proposed" && (
+                <label>
+                  <input
+                    type="checkbox"
+                    role="switch"
+                    checked={!!selected.materialUnchanged}
+                    onChange={(e) => updateWing({ ...selected, materialUnchanged: e.target.checked || undefined })}
+                    title="This block keeps its existing covering — drawings and the schedule mark it unchanged"
+                  />{" "}
+                  Covering unchanged on this block
+                </label>
+              )}
+              {!(variant === "proposed" && selected.materialUnchanged) && (
+              <label>
+                Roof material (this block)
+                <div className="material-row">
+                  <input
+                    value={selected.material ?? ""}
+                    placeholder={activeMaterial}
+                    onChange={(e) => updateWing({ ...selected, material: e.target.value || undefined })}
+                    title="Leave blank to use the case material — set it when this block's covering differs (e.g. a felt flat roof)"
+                  />
+                  <input
+                    type="color"
+                    value={selected.materialColor ?? activeColor}
+                    onChange={(e) => updateWing({ ...selected, materialColor: e.target.value })}
+                    aria-label="Block roof colour"
+                    title="Block roof colour"
+                  />
+                </div>
+              </label>
+              )}
+              <div className="toolbar" style={{ marginTop: 8 }}>
+                <button className="secondary" onClick={prefillHeights} title="Sets eaves and pitch from OS height data for the building inside your red line">
                   Prefill from OS data
                 </button>
-                <button className="secondary outline" onClick={deleteSelected}>
+                <button className="secondary outline" onClick={() => setConfirmDeleteBlock(true)} title="Removes the selected block">
                   Delete block
                 </button>
               </div>
               {prefillStatus && <small className="muted">{prefillStatus}</small>}
+              </details>
+
+              <details open={openingsOpen} onToggle={(e) => setOpeningsOpen((e.currentTarget as HTMLDetailsElement).open)} className="panel">
+                <summary>
+                  Openings — {selected.name}
+                  {(selected.openings?.length ?? 0) > 0 ? ` (${selected.openings!.length})` : ""}
+                </summary>
+              <div className="toolbar">
+                <button className="secondary outline" onClick={() => addOpening("window")} title="Windows appear on the elevations at true size">
+                  + Window
+                </button>
+                <button className="secondary outline" onClick={() => addOpening("door")}>
+                  + Door
+                </button>
+              </div>
+              {(selected.openings ?? []).map((o) => (
+                <details
+                  key={o.id}
+                  className={o.id === selectedOpeningId ? "panel opening-row selected" : "panel opening-row"}
+                  open={o.id === selectedOpeningId}
+                  onToggle={(e) => {
+                    const isOpen = (e.currentTarget as HTMLDetailsElement).open;
+                    if (isOpen) setSelectedOpeningId(o.id);
+                    else if (selectedOpeningId === o.id) setSelectedOpeningId(null);
+                  }}
+                >
+                  <summary>
+                    {o.type === "door" ? "Door" : "Window"} · {sideLabels[o.side]} wall
+                  </summary>
+                  <div className="opening-head">
+                    <select value={o.side} onChange={(e) => updateOpening(o.id, { side: e.target.value as Opening["side"] })} aria-label="Wall">
+                      {(["front", "back", "left", "right"] as const).map((side) => (
+                        <option key={side} value={side}>
+                          {sideLabels[side]} wall
+                        </option>
+                      ))}
+                    </select>
+                    <button className="secondary outline" onClick={() => removeOpening(o.id)} aria-label="Remove opening">
+                      ×
+                    </button>
+                  </div>
+                  <div className="two-col">
+                    <label>
+                      From left (m)
+                      <input type="number" step="0.1" value={o.offsetM} onChange={(e) => updateOpening(o.id, { offsetM: Number(e.target.value) })} />
+                    </label>
+                    <label>
+                      Width (m)
+                      <input type="number" step="0.1" value={o.widthM} onChange={(e) => updateOpening(o.id, { widthM: Number(e.target.value) })} />
+                    </label>
+                    <label>
+                      Height (m)
+                      <input type="number" step="0.1" value={o.heightM} onChange={(e) => updateOpening(o.id, { heightM: Number(e.target.value) })} />
+                    </label>
+                    {o.type === "window" && (
+                      <label>
+                        Sill (m)
+                        <input type="number" step="0.1" value={o.sillM} onChange={(e) => updateOpening(o.id, { sillM: Number(e.target.value) })} />
+                      </label>
+                    )}
+                  </div>
+                </details>
+              ))}
+              </details>
+
+              {selected.roofType !== "mono-pitch" && selected.roofType !== "flat" && (
+                <details className="panel">
+                  <summary>Chimney</summary>
+                  <label>
+                    <input
+                      type="checkbox"
+                      role="switch"
+                      checked={!!selected.chimney}
+                      onChange={(e) => updateWing({ ...selected, chimney: e.target.checked ? { offsetM: selected.widthM / 2 } : undefined })}
+                    />{" "}
+                    Chimney stack on ridge
+                  </label>
+                  {selected.chimney && (
+                    <>
+                      <label>
+                        Position along ridge (m)
+                        <input
+                          type="number"
+                          step="0.1"
+                          value={selected.chimney.offsetM}
+                          onChange={(e) => updateWing({ ...selected, chimney: { ...selected.chimney!, offsetM: Number(e.target.value) } })}
+                        />
+                      </label>
+                      <div className="two-col">
+                        <label>
+                          Along ridge (m)
+                          <input
+                            type="number"
+                            step="0.1"
+                            value={selected.chimney.alongM ?? 0.9}
+                            onChange={(e) => updateWing({ ...selected, chimney: { ...selected.chimney!, alongM: Number(e.target.value) } })}
+                          />
+                        </label>
+                        <label>
+                          Across (m)
+                          <input
+                            type="number"
+                            step="0.1"
+                            value={selected.chimney.acrossM ?? 0.5}
+                            onChange={(e) => updateWing({ ...selected, chimney: { ...selected.chimney!, acrossM: Number(e.target.value) } })}
+                          />
+                        </label>
+                      </div>
+                      <small className="muted">Or drag the chimney on the top-down plan; the blue corner resizes it.</small>
+                    </>
+                  )}
+                </details>
+              )}
             </>
           )}
         </aside>
 
-        <div>
+        <div className="composer-main">
           <PlanCanvas
             wings={activeWings}
             boundaryOutline={boundaryOutline}
@@ -258,13 +583,29 @@ export function RoofComposerStep({ wings, proposedWings, materials, boundary, on
           />
           {activeWings.length > 0 && (
             <div style={{ marginTop: 8 }}>
-              <ObliquePreview wings={activeWings} selectedWingId={selectedId} label={`Pseudo-3D view (${variant})`} height={220} roofColor={activeColor} />
+              <SceneEditor
+                wings={activeWings}
+                view={mainView}
+                selectedWingId={selectedId}
+                selectedOpeningId={selectedOpeningId}
+                gridSize={gridSize}
+                snap={snap}
+                label={
+                  mainView === "3d"
+                    ? `Pseudo-3D view (${variant} — ${activeMaterial}) — click a view below to edit an elevation`
+                    : `${DIR_NAMES[mainView]} elevation (${variant} — ${activeMaterial}) — editing`
+                }
+                roofColor={activeColor}
+                wingColors={wingColors}
+                onSelectOpening={(wingId, openingId) => {
+                  if (wingId) setSelectedId(wingId);
+                  setSelectedOpeningId(openingId);
+                }}
+                onUpdateWing={updateWing}
+              />
             </div>
           )}
-        </div>
-      </div>
-
-      <fieldset className="grid" style={{ marginTop: 16 }}>
+          <fieldset className="grid" style={{ marginTop: 16 }}>
         <label>
           Existing material
           <div className="material-row">
@@ -295,13 +636,30 @@ export function RoofComposerStep({ wings, proposedWings, materials, boundary, on
 
       {activeWings.length > 0 && (
         <div className="previews" style={{ marginTop: 8 }}>
-          <PlanScenePreview wings={activeWings} label={`Roof plan (${variant})`} roofColor={activeColor} />
-          <ElevationScenePreview wings={activeWings} dir="S" label={`South elevation (${variant})`} roofColor={activeColor} />
-          <ElevationScenePreview wings={activeWings} dir="N" label={`North elevation (${variant})`} roofColor={activeColor} />
-          <ElevationScenePreview wings={activeWings} dir="E" label={`East elevation (${variant})`} roofColor={activeColor} />
-          <ElevationScenePreview wings={activeWings} dir="W" label={`West elevation (${variant})`} roofColor={activeColor} />
+          <div
+            className={`preview-tile${mainView === "3d" ? " active" : ""}`}
+            tabIndex={0}
+            onClick={() => setMainView("3d")}
+            onKeyDown={(e) => e.key === "Enter" && setMainView("3d")}
+          >
+            <ObliquePreview wings={activeWings} label="Pseudo-3D" height={130} roofColor={activeColor} wingColors={wingColors} />
+          </div>
+          {(["S", "N", "E", "W"] as const).map((dir) => (
+            <div
+              key={dir}
+              className={`preview-tile${mainView === dir ? " active" : ""}`}
+                tabIndex={0}
+              onClick={() => setMainView(dir)}
+              onKeyDown={(e) => e.key === "Enter" && setMainView(dir)}
+            >
+              <ElevationScenePreview wings={activeWings} dir={dir} label={`${DIR_NAMES[dir]} elevation`} roofColor={activeColor} wingColors={wingColors} />
+            </div>
+          ))}
+          <PlanScenePreview wings={activeWings} label={`Roof plan (${variant})`} roofColor={activeColor} wingColors={wingColors} />
         </div>
       )}
+        </div>
+      </div>
     </div>
   );
 }

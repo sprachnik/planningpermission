@@ -17,7 +17,7 @@ interface Props {
   mapCentre?: BoundaryPoint;
   locationPlanImage?: string;
   locationPlanScale?: 1250 | 2500;
-  onChange: (updates: { boundary?: BoundaryPoint[]; mapCentre?: BoundaryPoint; locationPlanImage?: string; locationPlanScale?: 1250 | 2500 }) => void;
+  onChange: (updates: { address?: string; boundary?: BoundaryPoint[]; mapCentre?: BoundaryPoint; locationPlanImage?: string; locationPlanScale?: 1250 | 2500 }) => void;
 }
 
 /** Pull a UK postcode out of a free-text address, if present. */
@@ -57,7 +57,6 @@ export function LocationPlanStep({ address, boundary, mapCentre, locationPlanIma
   const [capturing, setCapturing] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
   const [premiumRequired, setPremiumRequired] = useState(false);
-  const [freePlan, setFreePlan] = useState(false);
   const [basemapUnavailable, setBasemapUnavailable] = useState(false);
 
   boundaryRef.current = boundary;
@@ -81,8 +80,9 @@ export function LocationPlanStep({ address, boundary, mapCentre, locationPlanIma
         if (await hasPremiumTiles()) {
           style = await osVectorStylePlain();
         } else {
+          // Free plan: the footer shows a pill for this (App probes the same
+          // cached hasPremiumTiles()); here we just cap the style.
           style = await osVectorStyleCapped();
-          if (!cancelled) setFreePlan(true);
         }
       } catch {
         // The OS style itself is unreachable (key not set on this deploy,
@@ -230,7 +230,12 @@ export function LocationPlanStep({ address, boundary, mapCentre, locationPlanIma
     }
     setStatus(null);
     mapRef.current?.flyTo({ center: [point.lng, point.lat], zoom: 19 });
-    onChange({ mapCentre: point });
+    // The postcode seeds the case's address (list label, PDF filename, title
+    // blocks) — but never overwrite a full address the user has typed.
+    const isBarePostcode = /^[A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2}$/.test(address.trim().toUpperCase());
+    const updates: Parameters<typeof onChange>[0] = { mapCentre: point };
+    if (!address.trim() || isBarePostcode) updates.address = postcode.trim().toUpperCase();
+    onChange(updates);
   }
 
   function clearBoundary() {
@@ -290,17 +295,6 @@ export function LocationPlanStep({ address, boundary, mapCentre, locationPlanIma
           Location Plan needs the basemap captured behind it.
         </article>
       )}
-      {freePlan && !premiumRequired && (
-        <article aria-label="Free plan notice">
-          <strong>OS Data Hub free plan detected.</strong> Detailed close-up mapping is Premium Data, so the map is drawing the most detailed free
-          data magnified — boundary drawing and capture work fine, but building outlines are generalised. For full 1:1250 detail, upgrade the project
-          to the <strong>Premium plan</strong> in the{" "}
-          <a href="https://osdatahub.os.uk" target="_blank" rel="noreferrer">
-            OS Data Hub dashboard
-          </a>{" "}
-          (the first £1,000/month of usage is free).
-        </article>
-      )}
       {premiumRequired && !basemapUnavailable && (
         <article aria-label="Premium plan required warning">
           <strong>Your OS Data Hub project is on the free plan.</strong> Detailed mapping at 1:1250 planning scales is "Premium Data" and the API is
@@ -312,38 +306,75 @@ export function LocationPlanStep({ address, boundary, mapCentre, locationPlanIma
           sure <em>OS Vector Tile API</em> is added to the project.
         </article>
       )}
-      <div className="toolbar">
-        <input placeholder="Postcode, e.g. CT9 1AB" value={postcode} onChange={(e) => setPostcode(e.target.value)} disabled={keyMissing} />
-        <button onClick={handleSearch} disabled={keyMissing}>
-          Search
-        </button>
-        <button className={drawing ? undefined : "secondary"} onClick={() => setDrawing((d) => !d)} aria-pressed={drawing} disabled={keyMissing}>
-          {drawing ? "Stop drawing boundary" : "Draw boundary"}
-        </button>
-        <button className="secondary outline" onClick={undoPoint} disabled={boundary.length === 0} title="Remove the last point (Ctrl+Z)">
-          Undo point
-        </button>
-        <button className="secondary outline" onClick={clearBoundary} disabled={boundary.length === 0}>
-          Clear boundary
-        </button>
-        <button className="contrast" onClick={() => capture(1250)} disabled={capturing || keyMissing} aria-busy={capturing}>
-          Capture 1:1250
-        </button>
-        <button className="contrast" onClick={() => capture(2500)} disabled={capturing || keyMissing} aria-busy={capturing}>
-          Capture 1:2500
-        </button>
-        {status && <small className="muted">{status}</small>}
+      <div className="toolbar-groups">
+        <div className="toolbar-group">
+          <span className="group-label">1 · Find the property</span>
+          <div className="controls">
+            <div className="search-combo">
+              <input placeholder="Postcode, e.g. CT9 1AB" value={postcode} onChange={(e) => setPostcode(e.target.value)} onKeyDown={(e) => e.key === "Enter" && handleSearch()} disabled={keyMissing} />
+              <button onClick={handleSearch} disabled={keyMissing} data-tooltip="Centres the map and saves the postcode as the case address">
+                Search
+              </button>
+            </div>
+          </div>
+        </div>
+        <div className="toolbar-group">
+          <span className="group-label">2 · Red-line boundary</span>
+          <div className="controls">
+            <button
+              className={drawing ? undefined : "secondary"}
+              onClick={() => setDrawing((d) => !d)}
+              aria-pressed={drawing}
+              disabled={keyMissing}
+              data-tooltip="Trace the whole plot — garden and drive included, not just the house"
+            >
+              {drawing ? "Stop drawing" : "Draw boundary"}
+            </button>
+            <button className="secondary outline" onClick={undoPoint} disabled={boundary.length === 0} data-tooltip="Remove the last point (Ctrl+Z)">
+              Undo point
+            </button>
+            <button className="secondary outline" onClick={clearBoundary} disabled={boundary.length === 0} data-tooltip="Start the red line again">
+              Clear
+            </button>
+          </div>
+        </div>
+        <div className="toolbar-group">
+          <span className="group-label">3 · Capture for the PDF</span>
+          <div className="controls">
+            <button
+              className="contrast"
+              onClick={() => capture(1250)}
+              disabled={capturing || keyMissing}
+              aria-busy={capturing}
+              data-tooltip="The standard scale for urban householder applications"
+            >
+              Capture 1:1250
+            </button>
+            <button
+              className="contrast"
+              onClick={() => capture(2500)}
+              disabled={capturing || keyMissing}
+              aria-busy={capturing}
+              data-tooltip="Use for larger or rural plots"
+            >
+              Capture 1:2500
+            </button>
+          </div>
+        </div>
       </div>
+      {status && <p className="hint">{status}</p>}
+      {drawing && (
+        <p className="hint">
+          Click the map to place points in order around the property — the red line closes itself. Drag a point to move it; Undo (or Ctrl+Z) removes
+          the last one.
+        </p>
+      )}
       {!keyMissing && <div ref={containerRef} className="map-container" />}
       {locationPlanImage && (
-        <p>
+        <p style={{ marginTop: "0.75rem" }}>
           <ins>✓ Location Plan captured at 1:{locationPlanScale}.</ins> <small className="muted">Re-capture any time the boundary or map position changes.</small>
         </p>
       )}
-      <small className="muted">
-        Click "Draw boundary" then click the map to place a red line tightly around the property. Click points in order around the boundary; the line
-        closes automatically. Drag a point to move it; "Undo point" (or Ctrl+Z) removes the last one.
-      </small>
     </div>
   );
 }

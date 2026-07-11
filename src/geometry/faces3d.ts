@@ -1,11 +1,144 @@
-import type { RoofParams, Wing } from "../data/types";
+import type { ChimneySpec, Opening, RoofParams, Wing } from "../data/types";
 import { computeRoofPlan } from "./roof";
 
 export type Vec3 = [number, number, number];
 
 export interface Face3D {
   pts: Vec3[];
-  kind: "wall" | "roof";
+  kind: "wall" | "roof" | "opening" | "chimney";
+  /** Set on kind "opening" faces so views can map polygons back to the Opening */
+  openingId?: string;
+}
+
+/** How far openings sit proud of their wall so the painter sort draws them
+ *  after it (same plane would tie on centroid depth). */
+const OPENING_PROUD_M = 0.01;
+
+/** Chimney stack plan size (along ridge × across) and rise above the ridge. */
+export const CHIMNEY_ALONG_M = 0.9;
+export const CHIMNEY_ACROSS_M = 0.5;
+export const CHIMNEY_ABOVE_RIDGE_M = 0.8;
+
+const clamp = (v: number, lo: number, hi: number) => Math.min(Math.max(v, lo), hi);
+
+/**
+ * Opening rectangles, coplanar with (and slightly proud of) their wall, wound
+ * to match the wall's outward normal. Offsets are measured from the wall's
+ * left corner as seen from outside; heights are clamped to the eave so a
+ * window can never poke through a roof plane.
+ */
+function buildOpeningFaces(params: RoofParams, openings: Opening[]): Face3D[] {
+  const { widthM: W, depthM: D, eaveHeightM: e } = params;
+  const eps = OPENING_PROUD_M;
+  const faces: Face3D[] = [];
+  for (const o of openings) {
+    const wallLen = o.side === "front" || o.side === "back" ? W : D;
+    const w = clamp(o.widthM, 0.2, wallLen - 0.1);
+    const from = clamp(o.offsetM, 0.05, wallLen - w - 0.05);
+    const z0 = clamp(o.type === "door" ? 0 : o.sillM, 0, e - 0.3);
+    const z1 = clamp(z0 + o.heightM, z0 + 0.2, e - 0.05);
+    let pts: Vec3[];
+    switch (o.side) {
+      case "front": // y=0, normal -y; outside left is x=0
+        pts = [
+          [from, -eps, z0],
+          [from + w, -eps, z0],
+          [from + w, -eps, z1],
+          [from, -eps, z1],
+        ];
+        break;
+      case "back": {
+        // y=D, normal +y; outside left is x=W
+        const xR = W - from;
+        const xL = xR - w;
+        pts = [
+          [xR, D + eps, z0],
+          [xL, D + eps, z0],
+          [xL, D + eps, z1],
+          [xR, D + eps, z1],
+        ];
+        break;
+      }
+      case "left": {
+        // x=0, normal -x; outside left is y=D
+        const yH = D - from;
+        const yL = yH - w;
+        pts = [
+          [-eps, yH, z0],
+          [-eps, yL, z0],
+          [-eps, yL, z1],
+          [-eps, yH, z1],
+        ];
+        break;
+      }
+      case "right": {
+        // x=W, normal +x; outside left is y=0
+        pts = [
+          [W + eps, from, z0],
+          [W + eps, from + w, z0],
+          [W + eps, from + w, z1],
+          [W + eps, from, z1],
+        ];
+        break;
+      }
+    }
+    faces.push({ pts, kind: "opening", openingId: o.id });
+  }
+  return faces;
+}
+
+/**
+ * A chimney stack as a closed box straddling the ridge (gable/hip only).
+ * It starts below the ridge so the roof planes hide the buried part; the
+ * painter sort takes care of the rest.
+ */
+function buildChimneyFaces(params: RoofParams, chimney: ChimneySpec): Face3D[] {
+  if (params.roofType === "mono-pitch" || params.roofType === "flat") return [];
+  const { widthM: W, depthM: D } = params;
+  const r = computeRoofPlan(params).ridgeHeightM;
+  const a = (chimney.alongM ?? CHIMNEY_ALONG_M) / 2;
+  const b = (chimney.acrossM ?? CHIMNEY_ACROSS_M) / 2;
+  const cx = clamp(chimney.offsetM, a + 0.1, W - a - 0.1);
+  const cy = D / 2;
+  const x0 = cx - a;
+  const x1 = cx + a;
+  const y0 = cy - b;
+  const y1 = cy + b;
+  const z0 = Math.max(r - 0.6, params.eaveHeightM);
+  const z1 = r + CHIMNEY_ABOVE_RIDGE_M;
+  const face = (pts: Vec3[]): Face3D => ({ pts, kind: "chimney" });
+  return [
+    face([
+      [x0, y0, z0],
+      [x1, y0, z0],
+      [x1, y0, z1],
+      [x0, y0, z1],
+    ]), // south face, normal -y
+    face([
+      [x1, y1, z0],
+      [x0, y1, z0],
+      [x0, y1, z1],
+      [x1, y1, z1],
+    ]), // north face, normal +y
+    face([
+      [x0, y1, z0],
+      [x0, y0, z0],
+      [x0, y0, z1],
+      [x0, y1, z1],
+    ]), // west face, normal -x
+    face([
+      [x1, y0, z0],
+      [x1, y1, z0],
+      [x1, y1, z1],
+      [x1, y0, z1],
+    ]), // east face, normal +x
+    face([
+      [x0, y0, z1],
+      [x1, y0, z1],
+      [x1, y1, z1],
+      [x0, y1, z1],
+    ]), // cap, normal +z
+  ];
 }
 
 /**
@@ -24,6 +157,15 @@ export function buildWingFaces(params: RoofParams): Face3D[] {
   const roof = (...pts: Vec3[]): void => {
     faces.push({ pts, kind: "roof" });
   };
+
+  if (roofType === "flat") {
+    wall([0, 0, 0], [W, 0, 0], [W, 0, e], [0, 0, e]); // front (y=0), normal -y
+    wall([W, D, 0], [0, D, 0], [0, D, e], [W, D, e]); // back (y=D), normal +y
+    wall([0, D, 0], [0, 0, 0], [0, 0, e], [0, D, e]); // left (x=0), normal -x
+    wall([W, 0, 0], [W, D, 0], [W, D, e], [W, 0, e]); // right (x=W), normal +x
+    roof([0, 0, e], [W, 0, e], [W, D, e], [0, D, e]); // deck, normal +z
+    return faces;
+  }
 
   if (roofType === "mono-pitch") {
     const highEdge = params.highEdge ?? "width-end";
@@ -106,20 +248,49 @@ export function faceCentroid(pts: Vec3[]): Vec3 {
   ];
 }
 
-/**
- * Places a wing's local faces onto the shared plan grid: optional 90° axis
- * swap (transpose), then translate. The transpose mirrors winding, so point
- * order is reversed for rotated wings to keep Newell normals outward.
- */
+export type QuarterTurn = 0 | 90 | 180 | 270;
+
+/** A wing's plan rotation, honouring the deprecated `rotated` flag (= 90°). */
+export function wingRotation(wing: Pick<Wing, "rotated" | "rotationDeg">): QuarterTurn {
+  return wing.rotationDeg ?? (wing.rotated ? 90 : 0);
+}
+
+/** Rotate a local plan point by quarter turns (CCW), normalised so the
+ *  footprint's SW corner stays at the local origin. True rotations preserve
+ *  winding, so Newell normals stay outward with no point-order tricks. */
+export function rotateLocalPoint(x: number, y: number, rot: QuarterTurn, W: number, D: number): { x: number; y: number } {
+  switch (rot) {
+    case 0:
+      return { x, y };
+    case 90:
+      return { x: D - y, y: x };
+    case 180:
+      return { x: W - x, y: D - y };
+    case 270:
+      return { x: y, y: W - x };
+  }
+}
+
+/** Places a wing's local faces onto the shared plan grid: quarter-turn
+ *  rotation about the footprint, then translate. */
 export function placeWingFaces(wing: Wing): Face3D[] {
-  return buildWingFaces(wing).map((f) => {
-    const pts = f.pts.map(([x, y, z]): Vec3 => (wing.rotated ? [y + wing.x, x + wing.y, z] : [x + wing.x, y + wing.y, z]));
-    if (wing.rotated) pts.reverse();
-    return { kind: f.kind, pts };
-  });
+  const faces = [
+    ...buildWingFaces(wing),
+    ...buildOpeningFaces(wing, wing.openings ?? []),
+    ...(wing.chimney ? buildChimneyFaces(wing, wing.chimney) : []),
+  ];
+  const rot = wingRotation(wing);
+  return faces.map((f) => ({
+    ...f,
+    pts: f.pts.map(([x, y, z]): Vec3 => {
+      const p = rotateLocalPoint(x, y, rot, wing.widthM, wing.depthM);
+      return [p.x + wing.x, p.y + wing.y, z];
+    }),
+  }));
 }
 
 /** Plan-grid footprint size of a wing (accounts for rotation). */
 export function wingPlanSize(wing: Wing): { w: number; d: number } {
-  return wing.rotated ? { w: wing.depthM, d: wing.widthM } : { w: wing.widthM, d: wing.depthM };
+  const rot = wingRotation(wing);
+  return rot === 90 || rot === 270 ? { w: wing.depthM, d: wing.widthM } : { w: wing.widthM, d: wing.depthM };
 }

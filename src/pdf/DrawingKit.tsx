@@ -37,6 +37,16 @@ const styles = StyleSheet.create({
     fontSize: 8,
     color: "#333",
   },
+  noteText: {
+    fontSize: 6.5,
+    color: "#333",
+    marginBottom: 1,
+  },
+  stampText: {
+    fontSize: 6.5,
+    color: "#111",
+    marginTop: 2,
+  },
   border: {
     position: "absolute",
     left: mmToPt(MARGIN_MM),
@@ -80,7 +90,7 @@ export function ScaleBar({ scaleDenominator }: { scaleDenominator: number }) {
           {barLengthM}m
         </Text>
       </Svg>
-      <Text style={styles.metaText}>Scale 1:{scaleDenominator} — bar shows {segmentM}m increments</Text>
+      <Text style={styles.metaText}>Scale 1:{scaleDenominator} at A4 landscape — bar shows {segmentM}m increments</Text>
     </View>
   );
 }
@@ -103,6 +113,13 @@ export interface DrawingPageProps {
   scaleDenominator: number;
   /** Real-world size (metres) of the content being drawn, used to fit/centre it. */
   drawingExtentM: { width: number; height: number };
+  /** Unique drawing number for the title block, e.g. "AP-03". */
+  drawingNumber: string;
+  /** Issue date shown in the title block (YYYY-MM-DD). */
+  dateISO: string;
+  revision?: string;
+  /** Short annotation lines shown in the title block (materials, OS licence, etc.). */
+  notes?: string[];
   showNorthArrow?: boolean;
   /** Captured basemap snapshot (data URL), drawn full-bleed behind the content area. */
   backgroundImageDataUrl?: string;
@@ -110,7 +127,19 @@ export interface DrawingPageProps {
   children: (toMm: (p: Point) => Point) => React.ReactNode;
 }
 
-export function DrawingPage({ title, address, scaleDenominator, drawingExtentM, showNorthArrow, backgroundImageDataUrl, children }: DrawingPageProps) {
+export function DrawingPage({
+  title,
+  address,
+  scaleDenominator,
+  drawingExtentM,
+  drawingNumber,
+  dateISO,
+  revision = "A",
+  notes,
+  showNorthArrow,
+  backgroundImageDataUrl,
+  children,
+}: DrawingPageProps) {
   const contentAreaWidthMm = PAGE_WIDTH_MM - MARGIN_MM * 2;
   const contentAreaHeightMm = PAGE_HEIGHT_MM - MARGIN_MM * 2 - TITLE_BLOCK_HEIGHT_MM;
 
@@ -160,10 +189,22 @@ export function DrawingPage({ title, address, scaleDenominator, drawingExtentM, 
         )}
       </View>
       <View style={styles.titleBlock}>
-        <View>
+        <View style={{ maxWidth: "38%" }}>
           <Text style={styles.titleText}>{title}</Text>
           <Text style={styles.metaText}>{address}</Text>
+          <Text style={styles.stampText}>
+            Drawing {drawingNumber} · Rev {revision} · {dateISO} · Purpose: PLANNING
+          </Text>
         </View>
+        {notes && notes.length > 0 && (
+          <View style={{ maxWidth: "30%", justifyContent: "flex-start" }}>
+            {notes.map((line, i) => (
+              <Text key={i} style={styles.noteText}>
+                {line}
+              </Text>
+            ))}
+          </View>
+        )}
         <View>
           <ScaleBar scaleDenominator={scaleDenominator} />
         </View>

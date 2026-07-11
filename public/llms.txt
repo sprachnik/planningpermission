@@ -1,0 +1,40 @@
+# Auto-Planning UK
+
+> Auto-Planning UK generates the drawing set a UK householder planning
+> application needs for a roof material change (for example Kent peg tile to
+> natural slate): a Location Plan at 1:1250 or 1:2500 on Ordnance Survey
+> mapping with a red-line site boundary, Existing and Proposed Roof Plans,
+> all four Existing and Proposed Elevations at 1:100 with scale bars, and a
+> Schedule of Materials — bundled as one Planning Portal-ready PDF.
+
+## What it is for
+
+- Like-for-like re-roofs that need planning permission because the property
+  is in a conservation area, under an Article 4 direction, or otherwise has
+  restricted permitted development rights.
+- Simple block-level extensions and dormers (proposed geometry can diverge
+  from existing).
+- Users: householders, and jobbing roofers/builders preparing applications
+  for their customers.
+
+## How it works
+
+1. Search the postcode; draw the red-line boundary around the whole plot on
+   OS mapping; capture the location plan at a true print scale.
+2. Model the house as parametric roof blocks (gable/hip/mono-pitch, pitch,
+   eaves) — building heights can be prefilled from OS building-height data.
+3. Download one PDF with a page per drawing, each with an accurate scale
+   bar, north arrow where required, drawing numbers and a materials schedule.
+
+## Key facts
+
+- Every drawing's scale is correct by construction (geometry is laid out in
+  physical page millimetres).
+- Mapping: Ordnance Survey Data Hub (vector tiles, NGD building heights).
+- The tool does not provide legal or planning advice; users should check
+  their local planning authority's validation checklist.
+
+## Contact
+
+Built by James Moores — https://www.linkedin.com/in/jamesmoores/
+Private tool; not open source.

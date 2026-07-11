@@ -1,10 +1,19 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { PDFDownloadLink } from "@react-pdf/renderer";
 import { repository } from "./data/localStorageRepository";
 import type { PlanningCase, Wing } from "./data/types";
 import { LocationPlanStep } from "./components/LocationPlanStep";
 import { RoofComposerStep } from "./components/composer/RoofComposerStep";
+import { GuidePage } from "./components/GuidePage";
+import { AuthPage } from "./components/AuthPage";
 import { PdfBundle } from "./pdf/PdfBundle";
+import { hasApiKey, hasPremiumTiles } from "./os/client";
+import { getUser, signOut, type StubUser } from "./auth";
+
+const FREE_PLAN_DETAIL =
+  "OS Data Hub free plan detected. Detailed close-up mapping is Premium Data, so the map draws the most detailed free data magnified — " +
+  "boundary drawing and capture work fine, but building outlines are generalised. For full 1:1250 detail, upgrade the project to the " +
+  "Premium plan in the OS Data Hub dashboard (the first £1,000/month of usage is free).";
 
 /** Migrates pre-composer cases (single `roof`) to the wings model. */
 function normaliseCase(c: PlanningCase): PlanningCase {
@@ -26,15 +35,166 @@ function newCase(): PlanningCase {
   };
 }
 
-type Step = "list" | "details" | "location" | "roof" | "download";
+type Step = "list" | "location" | "roof" | "download";
+
+function BrandMark({ size = 22 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden="true">
+      <rect width="64" height="64" rx="14" fill="#101418" />
+      <path d="M14 40 L32 20 L50 40" fill="none" stroke="#ffffff" strokeWidth="5" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M22 44 H42" fill="none" stroke="#0a84ff" strokeWidth="5" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+interface ShellProps {
+  onHome: () => void;
+  onGuide: () => void;
+  freePlan: boolean;
+  user: StubUser | null;
+  onSignIn: () => void;
+  onSignOut: () => void;
+  children: ReactNode;
+}
+
+/** Top-right account dropdown: avatar → My cases / Guidance / Sign out. */
+function AccountMenu({ user, onHome, onGuide, onSignOut }: { user: StubUser; onHome: () => void; onGuide: () => void; onSignOut: () => void }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const close = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
+    document.addEventListener("mousedown", close);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", close);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  const item = (label: string, action: () => void) => (
+    <a
+      href="#"
+      className="menu-item"
+      onClick={(e) => {
+        e.preventDefault();
+        setOpen(false);
+        action();
+      }}
+    >
+      {label}
+    </a>
+  );
+
+  return (
+    <div className="account-menu" ref={ref}>
+      <button className="account-trigger" onClick={() => setOpen((o) => !o)} aria-haspopup="menu" aria-expanded={open}>
+        <span className="avatar">{user.email[0].toUpperCase()}</span>
+        <span className="chevron" aria-hidden="true">
+          ▾
+        </span>
+      </button>
+      {open && (
+        <div className="menu-pop" role="menu">
+          <div className="menu-email">{user.email}</div>
+          {item("My cases", onHome)}
+          {item("Guidance", onGuide)}
+          <div className="menu-divider" />
+          {item("Sign out", onSignOut)}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Shell({ onHome, onGuide, freePlan, user, onSignIn, onSignOut, children }: ShellProps) {
+  return (
+    <div className="shell">
+      <header className="site-header">
+        <div className="inner">
+          <a
+            className="brand"
+            href="#"
+            onClick={(e) => {
+              e.preventDefault();
+              onHome();
+            }}
+          >
+            <BrandMark />
+            Auto-Planning UK
+          </a>
+          <nav className="header-nav">
+            <a
+              className="header-link"
+              href="#"
+              onClick={(e) => {
+                e.preventDefault();
+                onGuide();
+              }}
+            >
+              Guidance
+            </a>
+            {user ? (
+              <AccountMenu user={user} onHome={onHome} onGuide={onGuide} onSignOut={onSignOut} />
+            ) : (
+              <a
+                className="header-cta"
+                href="#"
+                onClick={(e) => {
+                  e.preventDefault();
+                  onSignIn();
+                }}
+              >
+                Sign in
+              </a>
+            )}
+          </nav>
+        </div>
+      </header>
+      <main className="container page">{children}</main>
+      <footer className="site-footer">
+        <div className="inner">
+          <span>
+            <strong>Auto-Planning UK</strong> — planning drawings for roof material changes.
+            {freePlan && (
+              <span className="pill-warn" title={FREE_PLAN_DETAIL}>
+                Free OS plan — generalised mapping
+              </span>
+            )}
+          </span>
+          <span>
+            Built by{" "}
+            <a href="https://www.linkedin.com/in/jamesmoores/" target="_blank" rel="noreferrer">
+              James Moores
+            </a>{" "}
+            · Private tool, not open source · © 2026
+          </span>
+        </div>
+      </footer>
+    </div>
+  );
+}
 
 export default function App() {
   const [cases, setCases] = useState<PlanningCase[]>([]);
   const [active, setActive] = useState<PlanningCase | null>(null);
   const [step, setStep] = useState<Step>("list");
+  const [freePlan, setFreePlan] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState<PlanningCase | null>(null);
+  const [showGuide, setShowGuide] = useState(false);
+  const [showAuth, setShowAuth] = useState(false);
+  const [user, setUser] = useState<StubUser | null>(() => getUser());
+  /** Draft for the "Edit details" modal; null = closed */
+  const [draft, setDraft] = useState<{ name: string; address: string } | null>(null);
 
   useEffect(() => {
     repository.listCases().then(setCases);
+    // Same cached probe LocationPlanStep's style selection uses — no extra tile spend.
+    if (hasApiKey()) hasPremiumTiles().then((premium) => setFreePlan(!premium));
   }, []);
 
   async function refreshList() {
@@ -49,132 +209,311 @@ export default function App() {
   }
 
   function openCase(c: PlanningCase) {
+    // Planning pages are gated behind the (stubbed) account.
+    if (!user) {
+      setShowAuth(true);
+      return;
+    }
     setActive(normaliseCase(c));
-    setStep("details");
+    setStep("location");
   }
 
   async function removeCase(id: string) {
     await repository.deleteCase(id);
     await refreshList();
+    setConfirmDelete(null);
     if (active?.id === id) {
       setActive(null);
       setStep("list");
     }
   }
 
+  const deleteModal = confirmDelete && (
+    <div className="modal-overlay" onClick={() => setConfirmDelete(null)}>
+      <div className="modal" role="dialog" aria-modal="true" aria-label="Confirm deletion" onClick={(e) => e.stopPropagation()}>
+        <h3>Delete this case?</h3>
+        <p>
+          <strong>{confirmDelete.name || confirmDelete.address || "(no postcode yet)"}</strong> and its boundary, captured map and roof model will be
+          permanently removed.
+        </p>
+        <div className="modal-actions">
+          <button className="secondary outline" onClick={() => setConfirmDelete(null)} autoFocus>
+            Cancel
+          </button>
+          <button className="danger" onClick={() => removeCase(confirmDelete.id)}>
+            Delete case
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+
+  const goHome = () => {
+    setShowGuide(false);
+    setShowAuth(false);
+    setStep("list");
+  };
+  const openGuide = () => {
+    setShowAuth(false);
+    setShowGuide(true);
+  };
+  const caseLabel = (c: PlanningCase) => c.name || c.address || "(no postcode yet)";
+
+  const shellProps = {
+    onHome: goHome,
+    onGuide: openGuide,
+    freePlan,
+    user,
+    onSignIn: () => setShowAuth(true),
+    onSignOut: () => {
+      signOut();
+      setUser(null);
+      goHome();
+    },
+  };
+
+  if (showAuth && !user) {
+    return (
+      <Shell {...shellProps}>
+        <AuthPage
+          onSignedIn={(u) => {
+            setUser(u);
+            setShowAuth(false);
+          }}
+        />
+      </Shell>
+    );
+  }
+
+  if (showGuide) {
+    return (
+      <Shell {...shellProps}>
+        <GuidePage onBack={() => setShowGuide(false)} />
+      </Shell>
+    );
+  }
+
   if (step === "list" || !active) {
     return (
-      <main className="container">
-        <hgroup style={{ marginTop: "2rem" }}>
-          <h1>roofplan</h1>
-          <p>Generate Location Plan, Roof Plan, and Elevation drawings for a UK planning application.</p>
-        </hgroup>
-        <button onClick={() => openCase(newCase())}>+ New case</button>
-        {cases.length > 0 && (
-          <section style={{ marginTop: "1.5rem" }}>
+      <Shell {...shellProps}>
+        <div className="hero">
+          <h1>The drawing set, without the drawing.</h1>
+          <p>
+            Location plan, roof plans and all four elevations — existing and proposed — at true scale, bundled as one
+            Planning Portal-ready PDF. Built for like-for-like roof material changes.
+          </p>
+          <button
+            className="pill"
+            onClick={() => openCase(newCase())}
+            data-tooltip={user ? "Saved in this browser — come back to it any time" : "Sign in to start — free while in preview"}
+            data-placement="bottom"
+          >
+            Start a new case
+          </button>
+        </div>
+
+        {user && cases.length > 0 ? (
+          <section>
+            <p className="section-label">Your cases</p>
             {cases.map((c) => (
               <article key={c.id} className="case-row">
                 <div>
-                  <strong>{c.address || "(no address yet)"}</strong>
+                  <strong>{caseLabel(c)}</strong>
                   <br />
-                  <small className="muted">updated {new Date(c.updatedAt).toLocaleString()}</small>
+                  <small className="muted">
+                    {c.name && c.address ? <>{c.address} · </> : null}updated {new Date(c.updatedAt).toLocaleString()}
+                  </small>
                 </div>
                 <div className="actions">
                   <button onClick={() => openCase(c)}>Open</button>
-                  <button className="secondary outline" onClick={() => removeCase(c.id)}>
+                  <button className="secondary outline" onClick={() => setConfirmDelete(c)}>
                     Delete
                   </button>
                 </div>
               </article>
             ))}
           </section>
+        ) : (
+          <section>
+            <p className="section-label">How it works</p>
+            <div className="how-it-works">
+              <div className="step-card">
+                <span className="step-num">1</span>
+                <h3>Find the property</h3>
+                <p>Search the postcode, draw the red-line boundary on Ordnance Survey mapping, and capture the location plan at 1:1250 or 1:2500.</p>
+              </div>
+              <div className="step-card">
+                <span className="step-num">2</span>
+                <h3>Model the roof</h3>
+                <p>Place simple blocks over the site boundary — gable, hip or lean-to — and set pitch and eaves. Elevations draw themselves.</p>
+              </div>
+              <div className="step-card">
+                <span className="step-num">3</span>
+                <h3>Download the set</h3>
+                <p>One PDF: location plan, existing and proposed roof plans, and four elevations each way — every page with an accurate scale bar.</p>
+              </div>
+            </div>
+          </section>
         )}
-      </main>
+        {deleteModal}
+      </Shell>
     );
   }
 
   const steps: { key: Step; label: string }[] = [
-    { key: "details", label: "1. Details" },
-    { key: "location", label: "2. Location Plan" },
-    { key: "roof", label: "3. Roof & Elevations" },
-    { key: "download", label: "4. Download" },
+    { key: "location", label: "1 · Location Plan" },
+    { key: "roof", label: "2 · Roof & Elevations" },
+    { key: "download", label: "3 · Download" },
   ];
 
+  const hasBoundary = active.boundary.length >= 3;
+  const hasCapture = !!active.locationPlanImage;
+  const hasBlocks = (active.wings?.length ?? 0) > 0;
+
   return (
-    <main className="container">
-      <nav style={{ marginTop: "1rem" }}>
-        <ul>
-          <li>
-            <a href="#" onClick={(e) => { e.preventDefault(); setStep("list"); }}>
-              ← All cases
-            </a>
-          </li>
-        </ul>
-      </nav>
-      <hgroup>
-        <h2>{active.address || "New case"}</h2>
-        <p>Planning drawing set</p>
-      </hgroup>
+    <Shell {...shellProps}>
+      <div className="wizard-head">
+        <h2>
+          {active.name || active.address || "New case"}
+          <button
+            className="edit-details"
+            onClick={() => setDraft({ name: active.name ?? "", address: active.address })}
+            data-tooltip="Rename the case and set the full property address for the drawings"
+          >
+            Edit details
+          </button>
+        </h2>
+        <a
+          href="#"
+          className="back"
+          onClick={(e) => {
+            e.preventDefault();
+            goHome();
+          }}
+        >
+          ← All cases
+        </a>
+      </div>
+
+      {draft && (
+        <div className="modal-overlay" onClick={() => setDraft(null)}>
+          <div className="modal" role="dialog" aria-modal="true" aria-label="Edit case details" onClick={(e) => e.stopPropagation()}>
+            <h3>Case details</h3>
+            <label>
+              Case name
+              <input value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} placeholder="e.g. Mrs Smith — re-roof" autoFocus />
+            </label>
+            <label>
+              Full property address
+              <input
+                value={draft.address}
+                onChange={(e) => setDraft({ ...draft, address: e.target.value })}
+                placeholder="12 Example Road, Ramsgate CT11 1AA"
+              />
+            </label>
+            <p>The address prints in the title block of every drawing. Keep the postcode in it — it drives the map search.</p>
+            <div className="modal-actions">
+              <button className="secondary outline" onClick={() => setDraft(null)}>
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  persist({ ...active, name: draft.name.trim() || undefined, address: draft.address.trim() });
+                  setDraft(null);
+                }}
+              >
+                Save
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       <nav className="steps">
         {steps.map((s) => (
-          <button key={s.key} className={step === s.key ? undefined : "secondary outline"} onClick={() => setStep(s.key)}>
+          <button key={s.key} className={step === s.key ? "seg active" : "seg"} onClick={() => setStep(s.key)}>
             {s.label}
           </button>
         ))}
       </nav>
 
-      {step === "details" && (
-        <article>
-          <label>
-            Address
-            <input
-              value={active.address}
-              onChange={(e) => persist({ ...active, address: e.target.value })}
-              placeholder="123 Example Road, Ramsgate, CT11 1AA"
-            />
-          </label>
-        </article>
-      )}
-
       {step === "location" && (
-        <LocationPlanStep
-          address={active.address}
-          boundary={active.boundary}
-          mapCentre={active.mapCentre}
-          locationPlanImage={active.locationPlanImage}
-          locationPlanScale={active.locationPlanScale}
-          onChange={(updates) => persist({ ...active, ...updates })}
-        />
+        <>
+          <div className="step-intro">
+            <h3>Location Plan</h3>
+            <p>
+              Search the postcode, draw the red line around the <strong>whole plot</strong> — garden and drive included, not just the house — then
+              capture the map for the PDF.
+            </p>
+          </div>
+          <LocationPlanStep
+            address={active.address}
+            boundary={active.boundary}
+            mapCentre={active.mapCentre}
+            locationPlanImage={active.locationPlanImage}
+            locationPlanScale={active.locationPlanScale}
+            onChange={(updates) => persist({ ...active, ...updates })}
+          />
+        </>
       )}
 
       {step === "roof" && (
-        <RoofComposerStep
-          wings={active.wings ?? []}
-          proposedWings={active.proposedWings}
-          materials={active.materials}
-          boundary={active.boundary}
-          onChange={(updates) => persist({ ...active, ...updates })}
-        />
+        <>
+          <div className="step-intro">
+            <h3>Roof &amp; Elevations</h3>
+            <p>Trace the house as blocks over the site boundary. For a pure material change, the proposed house stays identical — just the material differs.</p>
+          </div>
+          <RoofComposerStep
+            wings={active.wings ?? []}
+            proposedWings={active.proposedWings}
+            materials={active.materials}
+            boundary={active.boundary}
+            boundaryRotationDeg={active.composerBoundaryRotationDeg}
+            onChange={(updates) => persist({ ...active, ...updates })}
+          />
+        </>
       )}
 
       {step === "download" && (
-        <article>
-          {active.boundary.length < 3 && <p>Draw a boundary on the Location Plan step first.</p>}
-          {(active.wings?.length ?? 0) === 0 && <p>Add at least one block on the Roof &amp; Elevations step first.</p>}
-          {(active.boundary.length >= 3 || (active.wings?.length ?? 0) > 0) && (
-            // PDFDownloadLink renders its document to a blob once on mount and
-            // ignores prop changes — key it by updatedAt so edits remount it
-            // and the download reflects the latest case.
-            <PDFDownloadLink key={active.updatedAt} document={<PdfBundle planningCase={active} />} fileName={`${active.address || "roofplan"}-drawings.pdf`}>
-              {({ loading }) => <button aria-busy={loading}>{loading ? "Preparing PDF…" : "Download drawing bundle (PDF)"}</button>}
-            </PDFDownloadLink>
-          )}
-          <small className="muted">
-            One PDF with a page per drawing (Location Plan, Existing/Proposed Roof Plan, Existing/Proposed Elevations). Split into separate files before
-            uploading if your planning portal requires one document per drawing.
-          </small>
-        </article>
+        <>
+          <div className="step-intro">
+            <h3>Download</h3>
+            <p>One PDF with a page per drawing, ready for the Planning Portal.</p>
+          </div>
+          <article style={{ padding: "1.25rem 1.5rem" }}>
+            <ul className="checklist">
+              <li className={hasBoundary ? undefined : "todo-item"}>
+                <span className={`tick ${hasBoundary ? "done" : "todo"}`}>✓</span>
+                Red-line boundary drawn{hasBoundary ? "" : " — go to Location Plan and click around the property"}
+              </li>
+              <li className={hasCapture ? undefined : "todo-item"}>
+                <span className={`tick ${hasCapture ? "done" : "todo"}`}>✓</span>
+                Basemap captured{hasCapture ? ` at 1:${active.locationPlanScale}` : " — capture on the Location Plan step so the map prints behind the red line"}
+              </li>
+              <li className={hasBlocks ? undefined : "todo-item"}>
+                <span className={`tick ${hasBlocks ? "done" : "todo"}`}>✓</span>
+                House modelled{hasBlocks ? ` (${active.wings!.length} block${active.wings!.length === 1 ? "" : "s"})` : " — add at least one block on Roof & Elevations"}
+              </li>
+            </ul>
+            {(hasBoundary || hasBlocks) && (
+              // PDFDownloadLink renders its document to a blob once on mount and
+              // ignores prop changes — key it by updatedAt so edits remount it
+              // and the download reflects the latest case.
+              <PDFDownloadLink key={active.updatedAt} document={<PdfBundle planningCase={active} />} fileName={`${active.name || active.address || "auto-planning-uk"}-drawings.pdf`}>
+                {({ loading }) => (
+                  <button className="pill" aria-busy={loading} data-tooltip="Rebuilt from your latest edits — one page per drawing">
+                    {loading ? "Preparing PDF…" : "Download drawing set (PDF)"}
+                  </button>
+                )}
+              </PDFDownloadLink>
+            )}
+            <br />
+            <small className="muted">
+              One PDF with a page per drawing (Location Plan, Existing/Proposed Roof Plan, Existing/Proposed Elevations). Split into separate files before
+              uploading if your planning portal requires one document per drawing.
+            </small>
+          </article>
+        </>
       )}
-    </main>
+    </Shell>
   );
 }
