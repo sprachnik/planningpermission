@@ -14,8 +14,14 @@ import { ROOF_FILL_LIGHT } from "../svgDraw";
 
 interface Props {
   wings: Wing[];
-  /** Site boundary (local metres, centroid at origin) drawn as a faint underlay to trace against. */
+  /**
+   * Site boundary (local metres, centroid at origin) drawn as a faint
+   * underlay to trace against. Always part of the viewport fit so hiding it
+   * doesn't rescale the grid.
+   */
   boundaryOutline?: { x: number; y: number }[];
+  /** Hide the underlay without changing the viewport fit. */
+  showBoundary?: boolean;
   selectedId: string | null;
   gridSize: number;
   snap: boolean;
@@ -31,7 +37,7 @@ const MIN_VIEW_W = 18;
 const MIN_VIEW_H = 14;
 const HANDLE = 0.45;
 
-export function PlanCanvas({ wings, boundaryOutline, selectedId, gridSize, snap, placing, onSelect, onUpdate, onPlace }: Props) {
+export function PlanCanvas({ wings, boundaryOutline, showBoundary = true, selectedId, gridSize, snap, placing, onSelect, onUpdate, onPlace }: Props) {
   const svgRef = useRef<SVGSVGElement>(null);
   const dragRef = useRef<{ id: string; mode: "move" | "resize"; corner?: string; startX: number; startY: number; orig: Wing } | null>(null);
   const [ghost, setGhost] = useState<{ x: number; y: number } | null>(null);
@@ -160,7 +166,7 @@ export function PlanCanvas({ wings, boundaryOutline, selectedId, gridSize, snap,
       onPointerDown={() => onSelect(null)}
     >
       {gridLines}
-      {boundaryOutline && boundaryOutline.length >= 3 && (
+      {showBoundary && boundaryOutline && boundaryOutline.length >= 3 && (
         <g pointerEvents="none">
           <polygon
             points={boundaryOutline.map((p) => `${p.x},${sy(p.y)}`).join(" ")}

@@ -243,7 +243,8 @@ export function RoofComposerStep({ wings, proposedWings, materials, boundary, on
         <div>
           <PlanCanvas
             wings={activeWings}
-            boundaryOutline={showBoundary ? boundaryOutline : undefined}
+            boundaryOutline={boundaryOutline}
+            showBoundary={showBoundary}
             selectedId={selectedId}
             gridSize={gridSize}
             snap={snap}
