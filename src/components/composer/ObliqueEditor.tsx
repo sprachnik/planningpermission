@@ -13,7 +13,7 @@ import { obliqueScene, elevationScene, wingsBounds, OBLIQUE_KX, OBLIQUE_KY } fro
 import { wingRotation } from "../../geometry/faces3d";
 import type { Direction } from "../../geometry/composite";
 import type { Point } from "../../geometry/roof";
-import { WALL_FILL, ROOF_FILL, lighten, toPointsAttr } from "../svgDraw";
+import { WALL_FILL, ROOF_FILL, lighten, toPointsAttr, openingFill, garagePanelLines } from "../svgDraw";
 
 export type EditorView = "3d" | Direction;
 
@@ -172,7 +172,8 @@ export function SceneEditor({ wings, view, selectedWingId, selectedOpeningId, gr
 
     if (drag.mode === "move") {
       const offsetM = clamp(doSnap(orig.offsetM + da), 0.05, wallLen - orig.widthM - 0.05);
-      const sillM = orig.type === "door" ? 0 : clamp(doSnap(orig.sillM + db), 0, wing.eaveHeightM - orig.heightM - 0.05);
+      // only windows can leave the ground; doors, garage doors and open doorways stay grounded
+      const sillM = orig.type !== "window" ? 0 : clamp(doSnap(orig.sillM + db), 0, wing.eaveHeightM - orig.heightM - 0.05);
       patch = { offsetM, sillM };
     } else {
       // resize: the dragged corner moves, its opposite edges stay put
@@ -189,7 +190,7 @@ export function SceneEditor({ wings, view, selectedWingId, selectedOpeningId, gr
       if (corner === 2 || corner === 3) {
         // top edge
         patch.heightM = clamp(doSnap(orig.heightM + db), 0.3, wing.eaveHeightM - orig.sillM - 0.05);
-      } else if (orig.type !== "door") {
+      } else if (orig.type === "window") {
         // bottom edge: keep the head fixed (doors stay grounded)
         const sillM = clamp(doSnap(orig.sillM + db), 0, orig.sillM + orig.heightM - 0.3);
         patch.sillM = sillM;
@@ -237,21 +238,26 @@ export function SceneEditor({ wings, view, selectedWingId, selectedOpeningId, gr
                 ? lighten(roofBaseFor(poly.wingId), 0.22)
                 : roofBaseFor(poly.wingId)
               : poly.kind === "opening"
-                ? "#ffffff"
+                ? openingFill(poly.openingType)
                 : poly.kind === "chimney"
                   ? "#d9d2c6"
                   : WALL_FILL;
           return (
-            <polygon
-              key={i}
-              points={toPointsAttr(poly.points.map((p) => ({ x: p.x, y: sy(p.y) })))}
-              fill={fill}
-              stroke={isSelected ? SELECTED_STROKE : selectedWingId && poly.wingId === selectedWingId && poly.kind !== "opening" ? SELECTED_STROKE : LINE}
-              strokeWidth={isSelected ? STROKE * 2.5 : STROKE}
-              strokeLinejoin="round"
-              style={isOpening ? { cursor: "move" } : undefined}
-              onPointerDown={isOpening && poly.openingId ? (e) => startDrag(e, poly.wingId, poly.openingId!, "move") : undefined}
-            />
+            <g key={i}>
+              <polygon
+                points={toPointsAttr(poly.points.map((p) => ({ x: p.x, y: sy(p.y) })))}
+                fill={fill}
+                stroke={isSelected ? SELECTED_STROKE : selectedWingId && poly.wingId === selectedWingId && poly.kind !== "opening" ? SELECTED_STROKE : LINE}
+                strokeWidth={isSelected ? STROKE * 2.5 : STROKE}
+                strokeLinejoin="round"
+                style={isOpening ? { cursor: "move" } : undefined}
+                onPointerDown={isOpening && poly.openingId ? (e) => startDrag(e, poly.wingId, poly.openingId!, "move") : undefined}
+              />
+              {poly.openingType === "garage" &&
+                garagePanelLines(poly.points).map(([a, b], j) => (
+                  <line key={j} x1={a.x} y1={sy(a.y)} x2={b.x} y2={sy(b.y)} stroke={LINE} strokeWidth={STROKE / 2} pointerEvents="none" />
+                ))}
+            </g>
           );
         })}
         {(() => {

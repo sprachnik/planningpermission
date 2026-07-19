@@ -23,6 +23,7 @@ export interface ScenePolygon {
   kind: Face3D["kind"];
   wingId: string;
   openingId?: string;
+  openingType?: Face3D["openingType"];
 }
 
 export interface Scene2D {
@@ -132,7 +133,7 @@ function buildScene(faces: TaggedFace[], toViewer: Vec3, project: (p: Vec3) => P
   const visible = faces.filter((f) => dot(faceNormal(f.pts), toViewer) > 1e-9);
   // painter: far faces first
   visible.sort((a, b) => depth(faceCentroid(b.pts)) - depth(faceCentroid(a.pts)));
-  const polygons = visible.map((f) => ({ kind: f.kind, wingId: f.wingId, openingId: f.openingId, points: f.pts.map(project) }));
+  const polygons = visible.map((f) => ({ kind: f.kind, wingId: f.wingId, openingId: f.openingId, openingType: f.openingType, points: f.pts.map(project) }));
   const allPts = polygons.flatMap((p) => p.points);
   if (allPts.length === 0) return { polygons: [], widthM: 0, heightM: 0, origin: { x: 0, y: 0 } };
   const minX = Math.min(...allPts.map((p) => p.x));

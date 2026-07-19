@@ -53,15 +53,28 @@ password protection).
   is modelled as `wings: Wing[]`: axis-aligned rectangular blocks on a shared
   plan grid, each with its own roof type (gable/hip/mono-pitch/flat), pitch,
   eave height, quarter-turn rotation (`rotationDeg` 0/90/180/270; legacy
-  `rotated` boolean = 90), openings (windows/doors per wall),
-  optional ridge chimney, and an optional per-block roof material override
-  (`material`/`materialColor`, plus `materialUnchanged` for proposed blocks
-  keeping their existing covering). `proposedWings` holds diverged proposed
+  `rotated` boolean = 90), openings (windows/doors/garage doors/open
+  doorways per wall — only windows have a sill; garage doors render with
+  panel lines, open doorways as a dark aperture),
+  optional ridge chimney, and its own roof covering (`material`/
+  `materialColor` — blocks are independent; `materialUnchanged` marks a
+  proposed block keeping its existing covering). Coverings are granular by
+  design — there is no whole-house material control in the UI; the proposed
+  house copies the existing coverings and each re-roofed block is changed in
+  its own panel. `normaliseCase()` materialises blank block coverings from
+  the case `materials` on open; those case fields survive only as hidden
+  seeds/legacy fallback labels. `geometryUnchanged()` in PdfBundle must keep
+  ignoring material fields or a re-covering reads as a geometry change. `proposedWings` holds diverged proposed
   geometry (extensions/dormers); undefined means "same as existing" — the
   like-for-like material change. `materials` carries labels plus optional
   roof swatch colours (defaults in `components/svgDraw.ts`). `roof` is the
   legacy single-block field, migrated to `wings` by `normaliseCase()` in
-  `App.tsx` on open.
+  `App.tsx` on open. `northBearingDeg` is the true bearing plan-up faces
+  (defaults to `composerBoundaryRotationDeg` — aligning the north-up plot
+  underlay to the grid by R° CCW means plan-up faces bearing R): it drives
+  the composer's compass overlay, the "(SSW)"-style wind suffixes on
+  elevation/wall names (`geometry/compass.ts`) and the rotated PDF north
+  arrow. The plan geometry itself stays axis-aligned.
 - `src/data/repository.ts` + `localStorageRepository.ts` — the "database
   stub". All persistence is per-browser localStorage behind a small
   `Repository` interface; a real backend later means writing a second

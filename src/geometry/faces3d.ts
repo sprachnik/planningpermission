@@ -8,6 +8,8 @@ export interface Face3D {
   kind: "wall" | "roof" | "opening" | "chimney";
   /** Set on kind "opening" faces so views can map polygons back to the Opening */
   openingId?: string;
+  /** Set on kind "opening" faces — drives per-type rendering (fills, garage lines) */
+  openingType?: Opening["type"];
 }
 
 /** How far openings sit proud of their wall so the painter sort draws them
@@ -35,7 +37,8 @@ function buildOpeningFaces(params: RoofParams, openings: Opening[]): Face3D[] {
     const wallLen = o.side === "front" || o.side === "back" ? W : D;
     const w = clamp(o.widthM, 0.2, wallLen - 0.1);
     const from = clamp(o.offsetM, 0.05, wallLen - w - 0.05);
-    const z0 = clamp(o.type === "door" ? 0 : o.sillM, 0, e - 0.3);
+    // windows sit on their sill; doors, garage doors and open doorways are grounded
+    const z0 = clamp(o.type === "window" ? o.sillM : 0, 0, e - 0.3);
     const z1 = clamp(z0 + o.heightM, z0 + 0.2, e - 0.05);
     let pts: Vec3[];
     switch (o.side) {
@@ -82,7 +85,7 @@ function buildOpeningFaces(params: RoofParams, openings: Opening[]): Face3D[] {
         break;
       }
     }
-    faces.push({ pts, kind: "opening", openingId: o.id });
+    faces.push({ pts, kind: "opening", openingId: o.id, openingType: o.type });
   }
   return faces;
 }

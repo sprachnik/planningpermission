@@ -7,21 +7,24 @@ import type { Direction, Scene2D } from "../geometry/composite";
 import { DrawingPage, OutlinePath, LineSegment } from "./DrawingKit";
 import { boundaryCentroid, toLocalMetres, boundaryBoundingBoxM } from "../geometry/latlng";
 import { CONTENT_WIDTH_MM, CONTENT_HEIGHT_MM, fitDrawingScale, PT_PER_MM, PAGE_WIDTH_MM, PAGE_HEIGHT_MM, MARGIN_MM } from "./scale";
-import { roofColorFor, lighten } from "../components/svgDraw";
+import { roofColorFor, lighten, openingFill, garagePanelLines } from "../components/svgDraw";
+import { windSuffix } from "../geometry/compass";
+import { geometryUnchanged } from "../data/caseGeometry";
 
 const WALL_FILL = "#f2f2f2";
+
+/** True bearing the plan grid's "up" faces: explicit case setting, else the
+ *  boundary-underlay rotation (aligning the true-north-up plot to the grid by
+ *  R° CCW means grid-up faces bearing R), else grid north = true north. */
+function northBearing(planningCase: PlanningCase): number {
+  return planningCase.northBearingDeg ?? planningCase.composerBoundaryRotationDeg ?? 0;
+}
 
 /** The wing set a page should draw: proposed pages use proposedWings when the geometry diverged. */
 function wingsFor(planningCase: PlanningCase, proposed: boolean): Wing[] {
   return (proposed ? planningCase.proposedWings : undefined) ?? planningCase.wings!;
 }
 
-/** True when the proposed house is geometrically identical to the existing one
- *  (pure material change) — drives the "no external alterations" annotation. */
-function geometryUnchanged(planningCase: PlanningCase): boolean {
-  if (!planningCase.proposedWings) return true;
-  return JSON.stringify(planningCase.proposedWings) === JSON.stringify(planningCase.wings ?? []);
-}
 
 /** Per-wing material overrides describe the variant their wing set belongs
  *  to, so they only apply to proposed pages once proposedWings exists. */
@@ -91,6 +94,7 @@ function RoofPlanPage({ planningCase, proposed, meta }: { planningCase: Planning
       dateISO={meta.dateISO}
       notes={notes}
       showNorthArrow
+      northBearingDeg={northBearing(planningCase)}
     >
       {(toMm) => (
         <>
@@ -133,7 +137,7 @@ function ScenePolygonsPdf({
         return i % 2 ? lighten(base, 0.22) : base;
       }
       case "opening":
-        return "#ffffff";
+        return openingFill(poly.openingType);
       case "chimney":
         return "#d9d2c6";
       default:
@@ -143,12 +147,17 @@ function ScenePolygonsPdf({
   return (
     <>
       {scene.polygons.map((poly, i) => (
-        <OutlinePath
-          key={i}
-          points={poly.points.map((p) => ({ x: p.x + offsetX, y: p.y }))}
-          toMm={toMm}
-          fill={fillFor(poly, i)}
-        />
+        <Fragment key={i}>
+          <OutlinePath
+            points={poly.points.map((p) => ({ x: p.x + offsetX, y: p.y }))}
+            toMm={toMm}
+            fill={fillFor(poly, i)}
+          />
+          {poly.openingType === "garage" &&
+            garagePanelLines(poly.points).map(([a, b], j) => (
+              <LineSegment key={j} from={{ x: a.x + offsetX, y: a.y }} to={{ x: b.x + offsetX, y: b.y }} toMm={toMm} strokeWidth={0.2} />
+            ))}
+        </Fragment>
       ))}
     </>
   );
@@ -172,10 +181,15 @@ function ElevationsPage({
   const sceneB = elevationScene(wings, dirs[1]);
   const gap = 2;
   const bOffset = sceneA.widthM + gap;
+  const bearing = northBearing(planningCase);
   const dirName: Record<Direction, string> = { N: "North", E: "East", S: "South", W: "West" };
+  const elevName = (dir: Direction) => `${dirName[dir]}${windSuffix(dir, bearing)}`;
   const extent = { width: sceneA.widthM + gap + sceneB.widthM, height: Math.max(sceneA.heightM, sceneB.heightM) };
 
   const notes = [materialsNote(planningCase, proposed)];
+  if (windSuffix(dirs[0], bearing)) {
+    notes.push("Bracketed compass points give the true direction each elevation faces");
+  }
   if (proposed) {
     notes.push(
       geometryUnchanged(planningCase)
@@ -188,7 +202,7 @@ function ElevationsPage({
 
   return (
     <DrawingPage
-      title={`${proposed ? "Proposed" : "Existing"} Elevations (${dirName[dirs[0]]} & ${dirName[dirs[1]]})`}
+      title={`${proposed ? "Proposed" : "Existing"} Elevations (${elevName(dirs[0])} & ${elevName(dirs[1])})`}
       address={meta.address}
       scaleDenominator={fitDrawingScale(extent)}
       drawingExtentM={extent}

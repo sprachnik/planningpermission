@@ -95,12 +95,28 @@ export function ScaleBar({ scaleDenominator }: { scaleDenominator: number }) {
   );
 }
 
-export function NorthArrow() {
-  const size = 12;
+/** North arrow, rotated when the drawing's plan grid doesn't face true north.
+ *  `bearingDeg` is the true bearing the page's "up" direction faces; the
+ *  needle turns so it always points at true north. */
+export function NorthArrow({ bearingDeg = 0 }: { bearingDeg?: number }) {
+  const size = 14;
+  const cx = size / 2;
+  const cy = size / 2 + 0.6;
+  // page-up faces bearing B, so true north sits B° anticlockwise on the page;
+  // SVG y points down, so a visual-anticlockwise turn is a negative rotation
+  const rad = (-bearingDeg * Math.PI) / 180;
+  const cos = Math.cos(rad);
+  const sin = Math.sin(rad);
+  const at = (x: number, y: number): [number, number] => [cx + x * cos - y * sin, cy + x * sin + y * cos];
+  // needle in local coords (pointing up = negative y), rotated into place
+  const needle = [at(0, -4.5), at(1.7, 3.2), at(0, 1.7), at(-1.7, 3.2)]
+    .map(([x, y]) => `${x},${y}`)
+    .join(" ");
+  const [labelX, labelY] = at(0, -5.6);
   return (
     <Svg width={mmToPt(size)} height={mmToPt(size)} viewBox={`0 0 ${size} ${size}`}>
-      <Polygon points={`${size / 2},0 ${size * 0.65},${size * 0.7} ${size / 2},${size * 0.55} ${size * 0.35},${size * 0.7}`} fill="#111" />
-      <Text x={size / 2 - 1.5} y={size} style={{ fontSize: 3.5 }}>
+      <Polygon points={needle} fill="#111" />
+      <Text x={labelX} y={labelY + 1.2} textAnchor="middle" style={{ fontSize: 3.5 }}>
         N
       </Text>
     </Svg>
@@ -121,6 +137,8 @@ export interface DrawingPageProps {
   /** Short annotation lines shown in the title block (materials, OS licence, etc.). */
   notes?: string[];
   showNorthArrow?: boolean;
+  /** True bearing the page's "up" direction faces — rotates the north arrow. */
+  northBearingDeg?: number;
   /** Captured basemap snapshot (data URL), drawn full-bleed behind the content area. */
   backgroundImageDataUrl?: string;
   /** Receives a transform from real-world metres to page mm (already offset/centred/y-flipped). */
@@ -137,6 +155,7 @@ export function DrawingPage({
   revision = "A",
   notes,
   showNorthArrow,
+  northBearingDeg,
   backgroundImageDataUrl,
   children,
 }: DrawingPageProps) {
@@ -184,7 +203,7 @@ export function DrawingPage({
         </Svg>
         {showNorthArrow && (
           <View style={{ position: "absolute", top: 0, right: 0 }}>
-            <NorthArrow />
+            <NorthArrow bearingDeg={northBearingDeg} />
           </View>
         )}
       </View>

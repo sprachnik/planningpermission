@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { renderToBuffer } from "@react-pdf/renderer";
 import type { PlanningCase } from "../data/types";
 import { PdfBundle } from "./PdfBundle";
+import { geometryUnchanged } from "../data/caseGeometry";
 
 function sampleCase(overrides: Partial<PlanningCase> = {}): PlanningCase {
   return {
@@ -32,6 +33,15 @@ function pageCount(pdf: Uint8Array): number {
   return pages.length;
 }
 
+describe("geometryUnchanged", () => {
+  it("ignores per-block material fields — a re-covering is not a geometry change", () => {
+    const base = sampleCase();
+    const proposedWings = base.wings!.map((w) => ({ ...w, material: "Grey slate", materialColor: "#64707d" }));
+    expect(geometryUnchanged({ ...base, proposedWings })).toBe(true);
+    expect(geometryUnchanged({ ...base, proposedWings: [...proposedWings, { ...proposedWings[0], id: "w9", x: 20 }] })).toBe(false);
+  });
+});
+
 describe("PdfBundle smoke render", () => {
   it("renders the full 8-page set for a complete case", async () => {
     const pdf: Uint8Array = await renderToBuffer(<PdfBundle planningCase={sampleCase()} />);
@@ -44,6 +54,24 @@ describe("PdfBundle smoke render", () => {
   it("omits the location plan when no boundary is drawn", async () => {
     const pdf = await renderToBuffer(<PdfBundle planningCase={sampleCase({ boundary: [] })} />);
     expect(pageCount(pdf)).toBe(7);
+  }, 30_000);
+
+  it("renders a north bearing (rotated arrow, wind-suffixed titles) and all opening types", async () => {
+    const base = sampleCase();
+    const wings = base.wings!.map((w, i) =>
+      i === 0
+        ? {
+            ...w,
+            openings: [
+              { id: "o1", type: "window" as const, side: "front" as const, offsetM: 1, widthM: 1.2, heightM: 1.2, sillM: 0.9 },
+              { id: "o2", type: "garage" as const, side: "front" as const, offsetM: 3, widthM: 2.4, heightM: 2.1, sillM: 0 },
+              { id: "o3", type: "open" as const, side: "back" as const, offsetM: 1, widthM: 1.2, heightM: 2.1, sillM: 0 },
+            ],
+          }
+        : w,
+    );
+    const pdf = await renderToBuffer(<PdfBundle planningCase={sampleCase({ wings, northBearingDeg: 22.5 })} />);
+    expect(pageCount(pdf)).toBe(8);
   }, 30_000);
 
   it("renders diverged proposed geometry (extension) without error", async () => {

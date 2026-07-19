@@ -7,6 +7,8 @@ import { SceneEditor, type EditorView } from "./ObliqueEditor";
 import { ElevationScenePreview, ObliquePreview, PlanScenePreview, RoofTypeThumbnail } from "../RoofPreviewSvg";
 import { roofColorFor } from "../svgDraw";
 import { wingRotation, type QuarterTurn } from "../../geometry/faces3d";
+import { windSuffix } from "../../geometry/compass";
+import type { Direction } from "../../geometry/composite";
 
 interface Props {
   wings: Wing[];
@@ -16,12 +18,35 @@ interface Props {
   boundary: BoundaryPoint[];
   /** Composer-only rotation of the boundary underlay (never the boundary itself) */
   boundaryRotationDeg?: number;
-  onChange: (updates: { wings?: Wing[]; proposedWings?: Wing[]; materials?: MaterialLabels; composerBoundaryRotationDeg?: number }) => void;
+  /** True bearing plan-up faces; undefined = derived from boundaryRotationDeg */
+  northBearingDeg?: number;
+  onChange: (updates: {
+    wings?: Wing[];
+    proposedWings?: Wing[];
+    materials?: MaterialLabels;
+    composerBoundaryRotationDeg?: number;
+    northBearingDeg?: number;
+  }) => void;
 }
 
 type Variant = "existing" | "proposed";
 
 const DIR_NAMES = { N: "North", E: "East", S: "South", W: "West" } as const;
+
+const OPENING_NAMES: Record<Opening["type"], string> = {
+  window: "Window",
+  door: "Door",
+  garage: "Garage door",
+  open: "Open doorway",
+};
+
+/** New-opening defaults: garage doors are wide; doorways are door-height. */
+const OPENING_PRESETS: Record<Opening["type"], Pick<Opening, "widthM" | "heightM" | "sillM">> = {
+  window: { widthM: 1.2, heightM: 1.2, sillM: 0.9 },
+  door: { widthM: 0.9, heightM: 2, sillM: 0 },
+  garage: { widthM: 2.4, heightM: 2.1, sillM: 0 },
+  open: { widthM: 1.2, heightM: 2.1, sillM: 0 },
+};
 
 const PRESETS: { label: string; params: RoofParams }[] = [
   { label: "Gable", params: { widthM: 8, depthM: 6, roofType: "gable", pitchDegrees: 40, eaveHeightM: 5 } },
@@ -30,7 +55,7 @@ const PRESETS: { label: string; params: RoofParams }[] = [
   { label: "Flat", params: { widthM: 4, depthM: 3, roofType: "flat", pitchDegrees: 0, eaveHeightM: 3 } },
 ];
 
-export function RoofComposerStep({ wings, proposedWings, materials, boundary, boundaryRotationDeg = 0, onChange }: Props) {
+export function RoofComposerStep({ wings, proposedWings, materials, boundary, boundaryRotationDeg = 0, northBearingDeg, onChange }: Props) {
   // Nothing selected on entry: the sidebar opens with just "Add a block".
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedOpeningId, setSelectedOpeningId] = useState<string | null>(null);
@@ -46,6 +71,12 @@ export function RoofComposerStep({ wings, proposedWings, materials, boundary, bo
   const [prefillStatus, setPrefillStatus] = useState<string | null>(null);
   const [variant, setVariant] = useState<Variant>("existing");
   const [showBoundary, setShowBoundary] = useState(true);
+  const [showCompass, setShowCompass] = useState(true);
+  // True bearing plan-up faces: explicit setting, else the boundary underlay
+  // rotation (rotating the north-up plot CCW by R to fit the grid means
+  // plan-up faces bearing R), else plan north = true north.
+  const bearing = northBearingDeg ?? boundaryRotationDeg;
+  const dirLabel = (dir: Direction) => `${DIR_NAMES[dir]}${windSuffix(dir, bearing)}`;
   /** Which projection fills the main editing viewport */
   const [mainView, setMainView] = useState<EditorView>("3d");
 
@@ -53,7 +84,19 @@ export function RoofComposerStep({ wings, proposedWings, materials, boundary, bo
   // the first time it's opened, so a pure material change never diverges.
   const activeWings = variant === "proposed" ? (proposedWings ?? wings) : wings;
   const activeColor = roofColorFor(materials, variant === "proposed");
-  const activeMaterial = (variant === "proposed" ? materials.proposed : materials.existing) || "material not set";
+  const caseMaterial = (variant === "proposed" ? materials.proposed : materials.existing) || "material not set";
+  // Label for the previews: the case default, or "mixed coverings" once any
+  // block overrides it (or keeps its existing covering on the proposed house).
+  const wingMaterialLabels = new Set(
+    activeWings.map((w) => {
+      if (variant === "proposed" && w.materialUnchanged) {
+        const existing = wings.find((e) => e.id === w.id);
+        return existing?.material?.trim() || materials.existing || "existing covering";
+      }
+      return w.material?.trim() || caseMaterial;
+    }),
+  );
+  const activeMaterial = wingMaterialLabels.size > 1 ? "mixed coverings" : (wingMaterialLabels.values().next().value ?? caseMaterial);
   // Per-block roof colour overrides for the previews. Proposed blocks marked
   // "covering unchanged" show their existing colour instead.
   const wingColors = Object.fromEntries(
@@ -70,6 +113,9 @@ export function RoofComposerStep({ wings, proposedWings, materials, boundary, bo
     onChange(variant === "proposed" ? { proposedWings: next } : { wings: next });
   }
 
+  // Blocks are independent: each carries its own covering, set only in its
+  // block panel. The proposed house starts as a faithful copy (coverings
+  // included) — change each block's covering to what is actually proposed.
   function switchVariant(next: Variant) {
     if (next === "proposed" && !proposedWings) {
       onChange({ proposedWings: wings.map((w) => ({ ...w })) });
@@ -157,6 +203,10 @@ export function RoofComposerStep({ wings, proposedWings, materials, boundary, bo
       name: `${preset.label} ${activeWings.length + 1}`,
       x: 0,
       y: 0,
+      // new blocks own their covering from the start — inherit from the first
+      // block (an extension usually matches the house), else the case seed
+      material: activeWings[0]?.material ?? ((variant === "proposed" ? materials.proposed : materials.existing).trim() || undefined),
+      materialColor: activeWings[0]?.materialColor ?? activeColor,
     });
   }
 
@@ -184,17 +234,27 @@ export function RoofComposerStep({ wings, proposedWings, materials, boundary, bo
     270: { front: "West", back: "East", left: "North", right: "South" },
   };
   const sideLabels = SIDE_LABELS[selected ? wingRotation(selected) : 0];
+  /** Wall name plus the true compass point it faces, e.g. "South (SSW)". */
+  const wallLabel = (side: Opening["side"]) => `${sideLabels[side]}${windSuffix(sideLabels[side][0] as Direction, bearing)}`;
+
+  /** The selected wing's wall that faces a given compass direction (and is
+   *  therefore the one visible in that elevation view). */
+  function sideFacing(dir: Direction): Opening["side"] {
+    const rot = selected ? wingRotation(selected) : 0;
+    const entries = Object.entries(SIDE_LABELS[rot]) as [Opening["side"], string][];
+    return entries.find(([, name]) => name[0] === dir)?.[0] ?? "front";
+  }
 
   function addOpening(type: Opening["type"]) {
     if (!selected) return;
     const opening: Opening = {
       id: crypto.randomUUID(),
       type,
-      side: "front",
+      // drop the opening onto the wall being looked at: the wall facing the
+      // elevation under edit, or the front (south) wall in the 3D view
+      side: sideFacing(mainView === "3d" ? "S" : mainView),
       offsetM: 1,
-      widthM: type === "door" ? 0.9 : 1.2,
-      heightM: type === "door" ? 2 : 1.2,
-      sillM: type === "door" ? 0 : 0.9,
+      ...OPENING_PRESETS[type],
     };
     updateWing({ ...selected, openings: [...(selected.openings ?? []), opening] });
     setSelectedOpeningId(opening.id); // select + expand the new opening
@@ -263,7 +323,7 @@ export function RoofComposerStep({ wings, proposedWings, materials, boundary, bo
           <button
             className="secondary outline"
             onClick={() => onChange({ proposedWings: wings.map((w) => ({ ...w })) })}
-            data-tooltip="Discard proposed geometry changes and copy the existing house again"
+            data-tooltip="Discard proposed changes and copy the existing house again, coverings included"
           >
             Reset to existing
           </button>
@@ -326,6 +386,20 @@ export function RoofComposerStep({ wings, proposedWings, materials, boundary, bo
             <label>
               <input type="checkbox" role="switch" checked={snap} onChange={(e) => setSnap(e.target.checked)} /> Snap to grid
             </label>
+            <label>
+              Plan north bearing (°)
+              <input
+                type="number"
+                step="1"
+                value={bearing}
+                onChange={(e) => onChange({ northBearingDeg: Number(e.target.value) })}
+                title="True compass bearing the plan's up direction faces — e.g. 22 for a plot turned NNE. Follows the boundary underlay rotation until you set it. Renames the elevations and turns the compass and PDF north arrow."
+              />
+            </label>
+            <label>
+              <input type="checkbox" role="switch" checked={showCompass} onChange={(e) => setShowCompass(e.target.checked)} title="Semi-transparent compass on the plan showing true north" /> Show
+              compass
+            </label>
             {boundaryOutline && (
               <>
                 <label>
@@ -382,6 +456,26 @@ export function RoofComposerStep({ wings, proposedWings, materials, boundary, bo
                   Eaves (m)
                   <input type="number" step="0.1" value={selected.eaveHeightM} onChange={(e) => updateWing({ ...selected, eaveHeightM: Number(e.target.value) })} />
                 </label>
+                <label>
+                  X — from west (m)
+                  <input
+                    type="number"
+                    step="0.1"
+                    value={selected.x}
+                    onChange={(e) => updateWing({ ...selected, x: Number(e.target.value) })}
+                    title="Plan position of the block's south-west corner — set exactly instead of dragging"
+                  />
+                </label>
+                <label>
+                  Y — from south (m)
+                  <input
+                    type="number"
+                    step="0.1"
+                    value={selected.y}
+                    onChange={(e) => updateWing({ ...selected, y: Number(e.target.value) })}
+                    title="Plan position of the block's south-west corner — set exactly instead of dragging"
+                  />
+                </label>
               </div>
               {selected.roofType === "mono-pitch" && (
                 <label>
@@ -421,11 +515,11 @@ export function RoofComposerStep({ wings, proposedWings, materials, boundary, bo
               )}
               {!(variant === "proposed" && selected.materialUnchanged) && (
               <label>
-                Roof material (this block)
+                Roof material (this block, {variant} house)
                 <div className="material-row">
                   <input
                     value={selected.material ?? ""}
-                    placeholder={activeMaterial}
+                    placeholder={caseMaterial}
                     onChange={(e) => updateWing({ ...selected, material: e.target.value || undefined })}
                     title="Leave blank to use the case material — set it when this block's covering differs (e.g. a felt flat roof)"
                   />
@@ -462,7 +556,17 @@ export function RoofComposerStep({ wings, proposedWings, materials, boundary, bo
                 <button className="secondary outline" onClick={() => addOpening("door")}>
                   + Door
                 </button>
+                <button className="secondary outline" onClick={() => addOpening("garage")} title="Wide sectional door, drawn with panel lines">
+                  + Garage door
+                </button>
+                <button className="secondary outline" onClick={() => addOpening("open")} title="A doorway with no door — open porch or carport aperture, drawn as a dark opening">
+                  + Open doorway
+                </button>
               </div>
+              <small className="muted">
+                New openings land on the wall facing the elevation view you're editing (south-facing in the 3D view) — switch view or wall afterwards to
+                move them.
+              </small>
               {(selected.openings ?? []).map((o) => (
                 <details
                   key={o.id}
@@ -475,13 +579,13 @@ export function RoofComposerStep({ wings, proposedWings, materials, boundary, bo
                   }}
                 >
                   <summary>
-                    {o.type === "door" ? "Door" : "Window"} · {sideLabels[o.side]} wall
+                    {OPENING_NAMES[o.type]} · {wallLabel(o.side)} wall
                   </summary>
                   <div className="opening-head">
                     <select value={o.side} onChange={(e) => updateOpening(o.id, { side: e.target.value as Opening["side"] })} aria-label="Wall">
                       {(["front", "back", "left", "right"] as const).map((side) => (
                         <option key={side} value={side}>
-                          {sideLabels[side]} wall
+                          {wallLabel(side)} wall
                         </option>
                       ))}
                     </select>
@@ -570,6 +674,7 @@ export function RoofComposerStep({ wings, proposedWings, materials, boundary, bo
             wings={activeWings}
             boundaryOutline={boundaryOutline}
             showBoundary={showBoundary}
+            compassBearingDeg={showCompass ? bearing : undefined}
             selectedId={selectedId}
             gridSize={gridSize}
             snap={snap}
@@ -593,7 +698,7 @@ export function RoofComposerStep({ wings, proposedWings, materials, boundary, bo
                 label={
                   mainView === "3d"
                     ? `Pseudo-3D view (${variant} — ${activeMaterial}) — click a view below to edit an elevation`
-                    : `${DIR_NAMES[mainView]} elevation (${variant} — ${activeMaterial}) — editing`
+                    : `${dirLabel(mainView)} elevation (${variant} — ${activeMaterial}) — editing`
                 }
                 roofColor={activeColor}
                 wingColors={wingColors}
@@ -605,34 +710,10 @@ export function RoofComposerStep({ wings, proposedWings, materials, boundary, bo
               />
             </div>
           )}
-          <fieldset className="grid" style={{ marginTop: 16 }}>
-        <label>
-          Existing material
-          <div className="material-row">
-            <input value={materials.existing} onChange={(e) => onChange({ materials: { ...materials, existing: e.target.value } })} />
-            <input
-              type="color"
-              value={roofColorFor(materials, false)}
-              onChange={(e) => onChange({ materials: { ...materials, existingColor: e.target.value } })}
-              aria-label="Existing roof colour"
-              title="Existing roof colour"
-            />
-          </div>
-        </label>
-        <label>
-          Proposed material
-          <div className="material-row">
-            <input value={materials.proposed} onChange={(e) => onChange({ materials: { ...materials, proposed: e.target.value } })} />
-            <input
-              type="color"
-              value={roofColorFor(materials, true)}
-              onChange={(e) => onChange({ materials: { ...materials, proposedColor: e.target.value } })}
-              aria-label="Proposed roof colour"
-              title="Proposed roof colour"
-            />
-          </div>
-        </label>
-      </fieldset>
+          <small className="muted" style={{ display: "block", marginTop: 12 }}>
+        Each block owns its roof covering — select a block and set <em>Roof material</em> in its panel. On the proposed house, change each re-roofed
+        block's covering (or tick <em>covering unchanged</em>); the drawings and schedule follow the blocks.
+      </small>
 
       {activeWings.length > 0 && (
         <div className="previews" style={{ marginTop: 8 }}>
@@ -652,7 +733,7 @@ export function RoofComposerStep({ wings, proposedWings, materials, boundary, bo
               onClick={() => setMainView(dir)}
               onKeyDown={(e) => e.key === "Enter" && setMainView(dir)}
             >
-              <ElevationScenePreview wings={activeWings} dir={dir} label={`${DIR_NAMES[dir]} elevation`} roofColor={activeColor} wingColors={wingColors} />
+              <ElevationScenePreview wings={activeWings} dir={dir} label={`${dirLabel(dir)} elevation`} roofColor={activeColor} wingColors={wingColors} />
             </div>
           ))}
           <PlanScenePreview wings={activeWings} label={`Roof plan (${variant})`} roofColor={activeColor} wingColors={wingColors} />

@@ -30,10 +30,12 @@ export interface MaterialLabels {
  * along plan-x (east) and depth along plan-y (north) unless `rotated`, which
  * swaps the axes (ridge turns 90°).
  */
-/** A window or door on one wall of a wing (local frame, before rotation). */
+/** A window or door on one wall of a wing (local frame, before rotation).
+ *  "garage" is a wide sectional door; "open" is a doorway with no door leaf
+ *  (open porch / carport aperture). Both sit on the ground like a door. */
 export interface Opening {
   id: string;
-  type: "window" | "door";
+  type: "window" | "door" | "garage" | "open";
   /** Wall in the wing's local frame: front y=0, back y=depth, left x=0, right x=width */
   side: "front" | "back" | "left" | "right";
   /** Distance (m) along the wall from its left corner as seen from outside */
@@ -98,6 +100,12 @@ export interface PlanningCase {
    *  an angled plot can line up with the axis-aligned blocks. Display aid
    *  only — never affects the saved boundary or the Location Plan. */
   composerBoundaryRotationDeg?: number;
+  /** True compass bearing (° clockwise from north) that the plan grid's "up"
+   *  (+y) direction faces. Undefined = derived from the boundary underlay
+   *  rotation (rotating the true-north-up underlay CCW by R means grid-up
+   *  faces bearing R), falling back to 0 (grid north = true north). Drives
+   *  the composer compass, elevation names and the PDF north arrow. */
+  northBearingDeg?: number;
   /** Legacy single-block model; superseded by `wings` (migrated on load) */
   roof?: RoofParams;
   wings?: Wing[];

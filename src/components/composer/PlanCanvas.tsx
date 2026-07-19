@@ -22,6 +22,12 @@ interface Props {
   boundaryOutline?: { x: number; y: number }[];
   /** Hide the underlay without changing the viewport fit. */
   showBoundary?: boolean;
+  /**
+   * True bearing (° clockwise from north) that plan-up faces. When set, a
+   * small semi-transparent compass overlays the top-right corner with its
+   * needle turned to true north; undefined hides it.
+   */
+  compassBearingDeg?: number;
   selectedId: string | null;
   gridSize: number;
   snap: boolean;
@@ -59,7 +65,7 @@ const MIN_VIEW_W = 18;
 const MIN_VIEW_H = 14;
 const HANDLE = 0.45;
 
-export function PlanCanvas({ wings, boundaryOutline, showBoundary = true, selectedId, gridSize, snap, placing, onSelect, onUpdate, onPlace }: Props) {
+export function PlanCanvas({ wings, boundaryOutline, showBoundary = true, compassBearingDeg, selectedId, gridSize, snap, placing, onSelect, onUpdate, onPlace }: Props) {
   const svgRef = useRef<SVGSVGElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<{ id: string; mode: "move" | "resize" | "chimney" | "chimney-size"; corner?: string; startX: number; startY: number; orig: Wing } | null>(null);
@@ -402,6 +408,23 @@ export function PlanCanvas({ wings, boundaryOutline, showBoundary = true, select
         <rect x={ghost.x} y={sy(ghost.y + placing.depthM)} width={placing.widthM} height={placing.depthM} fill="#4353ff" fillOpacity={0.25} stroke="#4353ff" strokeDasharray="0.3,0.2" strokeWidth={0.08} pointerEvents="none" />
       )}
     </svg>
+      {compassBearingDeg !== undefined && (
+        // Compass overlay: plan-up faces `compassBearingDeg`, so true north
+        // sits that many degrees anticlockwise on screen (negative CSS/SVG
+        // rotation, since positive screen rotation is clockwise).
+        <div style={{ position: "absolute", top: 34, right: 10, opacity: 0.8, pointerEvents: "none" }} aria-hidden>
+          <svg viewBox="0 0 48 48" width={52} height={52}>
+            <circle cx={24} cy={26} r={16} fill="rgba(255,255,255,0.6)" stroke="rgba(0,0,0,0.35)" strokeWidth={1} />
+            <g transform={`rotate(${-compassBearingDeg} 24 26)`}>
+              <polygon points="24,13 28,26 20,26" fill="#e02424" />
+              <polygon points="24,39 20,26 28,26" fill="#9aa0a6" />
+              <text x={24} y={10} fontSize={8} textAnchor="middle" fill="#444">
+                N
+              </text>
+            </g>
+          </svg>
+        </div>
+      )}
       {inlineEdit && editWing && (
         <div
           className="dim-editor"

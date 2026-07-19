@@ -4,7 +4,7 @@ import { planScene, elevationScene, obliqueScene } from "../geometry/composite";
 import type { Direction } from "../geometry/composite";
 import { buildWingFaces, faceNormal, faceCentroid } from "../geometry/faces3d";
 import type { RoofParams } from "../data/types";
-import { WALL_FILL, ROOF_FILL, ROOF_FILL_LIGHT, flip, toPointsAttr, lighten } from "./svgDraw";
+import { WALL_FILL, ROOF_FILL, ROOF_FILL_LIGHT, flip, toPointsAttr, lighten, openingFill, garagePanelLines } from "./svgDraw";
 
 const SELECTED_STROKE = "#4353ff";
 const LINE = "#2b2b2b";
@@ -47,7 +47,6 @@ function HorizontalDim({ y, from, to, label }: { y: number; from: number; to: nu
 }
 
 /** Renders any projected Scene2D (oblique or elevation) with wall/roof shading. */
-const OPENING_FILL = "#ffffff";
 const CHIMNEY_FILL = "#d9d2c6";
 
 export function ScenePolygons({
@@ -69,7 +68,7 @@ export function ScenePolygons({
         return i % 2 ? lighten(base, 0.22) : base;
       }
       case "opening":
-        return OPENING_FILL;
+        return openingFill(poly.openingType);
       case "chimney":
         return CHIMNEY_FILL;
       default:
@@ -79,14 +78,20 @@ export function ScenePolygons({
   return (
     <>
       {scene.polygons.map((poly, i) => (
-        <polygon
-          key={i}
-          points={toPointsAttr(flip(poly.points, scene.heightM))}
-          fill={fillFor(poly, i)}
-          stroke={selectedWingId && poly.wingId === selectedWingId ? SELECTED_STROKE : LINE}
-          strokeWidth={selectedWingId && poly.wingId === selectedWingId ? STROKE * 2 : STROKE}
-          strokeLinejoin="round"
-        />
+        <g key={i}>
+          <polygon
+            points={toPointsAttr(flip(poly.points, scene.heightM))}
+            fill={fillFor(poly, i)}
+            stroke={selectedWingId && poly.wingId === selectedWingId ? SELECTED_STROKE : LINE}
+            strokeWidth={selectedWingId && poly.wingId === selectedWingId ? STROKE * 2 : STROKE}
+            strokeLinejoin="round"
+          />
+          {poly.openingType === "garage" &&
+            garagePanelLines(poly.points).map(([a, b], j) => {
+              const [fa, fb] = flip([a, b], scene.heightM);
+              return <line key={j} x1={fa.x} y1={fa.y} x2={fb.x} y2={fb.y} stroke={LINE} strokeWidth={STROKE / 2} />;
+            })}
+        </g>
       ))}
     </>
   );

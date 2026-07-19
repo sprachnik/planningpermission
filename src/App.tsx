@@ -9,17 +9,30 @@ import { AuthPage } from "./components/AuthPage";
 import { PdfBundle } from "./pdf/PdfBundle";
 import { hasApiKey, hasPremiumTiles } from "./os/client";
 import { getUser, signOut, type StubUser } from "./auth";
+import { roofColorFor } from "./components/svgDraw";
 
 const FREE_PLAN_DETAIL =
   "OS Data Hub free plan detected. Detailed close-up mapping is Premium Data, so the map draws the most detailed free data magnified — " +
   "boundary drawing and capture work fine, but building outlines are generalised. For full 1:1250 detail, upgrade the project to the " +
   "Premium plan in the OS Data Hub dashboard (the first £1,000/month of usage is free).";
 
-/** Migrates pre-composer cases (single `roof`) to the wings model. */
+/** Migrates pre-composer cases (single `roof`) to the wings model, and
+ *  materialises per-block coverings: every block owns its material outright
+ *  (the case-level `materials` only seed new blocks and label the schedule),
+ *  so editing one block never changes another. */
 function normaliseCase(c: PlanningCase): PlanningCase {
-  if (c.wings) return c;
-  const wings: Wing[] = c.roof ? [{ ...c.roof, id: crypto.randomUUID(), name: "Main house", x: 0, y: 0 }] : [];
-  return { ...c, wings };
+  const base: PlanningCase = c.wings
+    ? c
+    : { ...c, wings: c.roof ? [{ ...c.roof, id: crypto.randomUUID(), name: "Main house", x: 0, y: 0 }] : [] };
+  const seed = (w: Wing, label: string, color: string): Wing =>
+    w.material?.trim() ? w : { ...w, material: label.trim() || undefined, materialColor: w.materialColor ?? color };
+  return {
+    ...base,
+    wings: (base.wings ?? []).map((w) => seed(w, base.materials.existing, roofColorFor(base.materials, false))),
+    proposedWings: base.proposedWings?.map((w) =>
+      w.materialUnchanged ? w : seed(w, base.materials.proposed, roofColorFor(base.materials, true)),
+    ),
+  };
 }
 
 function newCase(): PlanningCase {
@@ -468,6 +481,7 @@ export default function App() {
             materials={active.materials}
             boundary={active.boundary}
             boundaryRotationDeg={active.composerBoundaryRotationDeg}
+            northBearingDeg={active.northBearingDeg}
             onChange={(updates) => persist({ ...active, ...updates })}
           />
         </>

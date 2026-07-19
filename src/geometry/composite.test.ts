@@ -200,6 +200,23 @@ describe("openings", () => {
     expect(scene.polygons.filter((p) => p.kind !== "opening").every((p) => p.openingId === undefined)).toBe(true);
   });
 
+  it("scene polygons carry the opening type (per-type rendering depends on it)", () => {
+    const garage = { ...window, id: "g1", type: "garage" as const, widthM: 2.4, heightM: 2.1 };
+    const scene = elevationScene([gable({ openings: [garage] })], "S");
+    expect(scene.polygons.find((p) => p.kind === "opening")!.openingType).toBe("garage");
+  });
+
+  it("garage doors and open doorways sit on the ground; only windows use the sill", () => {
+    for (const type of ["door", "garage", "open"] as const) {
+      const grounded = { ...window, id: `t-${type}`, type, sillM: 1.4, heightM: 2 };
+      const scene = elevationScene([gable({ openings: [grounded] })], "S");
+      const rect = scene.polygons.find((p) => p.kind === "opening")!;
+      expect(Math.min(...rect.points.map((p) => p.y))).toBeCloseTo(0, 6);
+    }
+    const sill = elevationScene([gable({ openings: [window] })], "S").polygons.find((p) => p.kind === "opening")!;
+    expect(Math.min(...sill.points.map((p) => p.y))).toBeCloseTo(0.9, 6);
+  });
+
   it("oversized openings are clamped inside the wall", () => {
     const silly = { ...window, offsetM: -5, widthM: 50, heightM: 50, sillM: -2 };
     const scene = elevationScene([gable({ openings: [silly] })], "S");

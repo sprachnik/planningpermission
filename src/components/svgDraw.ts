@@ -1,4 +1,5 @@
 import type { Point } from "../geometry/roof";
+import type { Opening } from "../data/types";
 
 // Shared drawing palette for on-screen previews, the plan canvas, and the PDF
 export const WALL_FILL = "#ede7d9";
@@ -34,4 +35,22 @@ export function flip(points: Point[], H: number): Point[] {
 
 export function toPointsAttr(points: Point[]): string {
   return points.map((p) => `${p.x.toFixed(3)},${p.y.toFixed(3)}`).join(" ");
+}
+
+/** Fill for a projected opening face. Doors/windows/garage doors read as white
+ *  joinery; an open doorway (porch/carport aperture) reads as a dark void. */
+export function openingFill(type?: Opening["type"]): string {
+  return type === "open" ? "#8c8c8c" : "#ffffff";
+}
+
+/** Horizontal panel lines that make a garage door read as a sectional door.
+ *  Opening faces are quads in the order bottom-left → bottom-right →
+ *  top-right → top-left (preserved by the true rotations and the linear
+ *  projections), so interpolating between the bottom and top edges yields
+ *  correctly foreshortened lines in any view. Same space in, same space out. */
+export function garagePanelLines(points: Point[]): [Point, Point][] {
+  if (points.length !== 4) return [];
+  const [bl, br, tr, tl] = points;
+  const lerp = (a: Point, b: Point, t: number): Point => ({ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t });
+  return [0.25, 0.5, 0.75].map((t) => [lerp(bl, tl, t), lerp(br, tr, t)]);
 }
