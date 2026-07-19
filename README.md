@@ -59,10 +59,16 @@ npm run lint   # oxlint
    extensions and dormers. Pick gable/hip/lean-to/flat from the palette,
    drag/resize/rotate (quarter turns) on the canvas, set pitch and eaves per
    block (or prefill from OS building-height data where confidence is
-   High/Moderate). Add **windows, doors and chimneys** and drag them directly
-   on the pseudo-3D view or any elevation — the thumbnails switch the main
-   editing view. Materials are set per case with per-block overrides (or
-   marked "covering unchanged" on proposed blocks).
+   High/Moderate), and place blocks precisely with numeric X/Y inputs. Add
+   **windows, doors, garage doors, open doorways and chimneys** — new
+   openings land on the wall facing the elevation view being edited, and
+   drag directly on the pseudo-3D view or any elevation (the thumbnails
+   switch the main editing view). Each block owns its **roof covering**,
+   existing and proposed edited independently (or marked "covering
+   unchanged" on proposed blocks). A **plan north bearing** — derived
+   automatically from the boundary underlay rotation, manually overridable —
+   drives a compass overlay on the plan, true-compass elevation names
+   ("South (SSW)") and the rotated north arrow on the PDF.
 3. **Download** — `src/pdf/PdfBundle.tsx` assembles everything into one PDF
    (`@react-pdf/renderer`): every page carries a real title block (unique
    drawing number, revision, date, "1:100 at A4" statement, PLANNING purpose

@@ -201,8 +201,9 @@ PDF via `@react-pdf/renderer`, keyed by `updatedAt`).
 ## Roadmap (agreed with owner)
 
 1. ~~Openings/chimney editor on elevations~~ — DONE (v1): per-wing
-   windows/doors as coplanar faces drawn proud of their wall (`faces3d.ts`),
-   ridge chimney box, composer editor section, rendered in previews + PDF.
+   windows/doors/garage doors/open doorways as coplanar faces drawn proud of
+   their wall (`faces3d.ts`), ridge chimney box, composer editor section,
+   rendered in previews + PDF.
 2. Photo tracing for elevations (scale from a known dimension).
 3. True valley/junction lines where blocks intersect.
 4. Netlify deploy + domain-restricted key end-to-end check.
