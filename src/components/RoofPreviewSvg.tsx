@@ -4,7 +4,7 @@ import { planScene, elevationScene, obliqueScene } from "../geometry/composite";
 import type { Direction } from "../geometry/composite";
 import { buildWingFaces, faceNormal, faceCentroid } from "../geometry/faces3d";
 import type { RoofParams } from "../data/types";
-import { WALL_FILL, ROOF_FILL, ROOF_FILL_LIGHT, flip, toPointsAttr, lighten, openingFill, garagePanelLines } from "./svgDraw";
+import { WALL_FILL, ROOF_FILL, ROOF_FILL_LIGHT, CONTEXT_WALL_FILL, CONTEXT_ROOF_FILL, flip, toPointsAttr, lighten, openingFill, garagePanelLines } from "./svgDraw";
 
 const SELECTED_STROKE = "#4353ff";
 const LINE = "#2b2b2b";
@@ -62,6 +62,7 @@ export function ScenePolygons({
   wingColors?: Record<string, string>;
 }) {
   const fillFor = (poly: Scene2D["polygons"][number], i: number) => {
+    if (poly.context) return poly.kind === "roof" ? CONTEXT_ROOF_FILL : CONTEXT_WALL_FILL;
     switch (poly.kind) {
       case "roof": {
         const base = wingColors?.[poly.wingId] ?? roofColor ?? ROOF_FILL;
@@ -141,7 +142,8 @@ export function ElevationScenePreview({ wings, dir, label, roofColor, wingColors
 export function PlanScenePreview({ wings, label, roofColor, wingColors }: { wings: Wing[]; label: string; roofColor?: string; wingColors?: Record<string, string> }) {
   const scene = planScene(wings);
   const H = scene.heightM;
-  const fillForWing = (wingId: string) => {
+  const fillForWing = (wingId: string, context?: boolean) => {
+    if (context) return CONTEXT_ROOF_FILL;
     const base = wingColors?.[wingId] ?? roofColor;
     return base ? lighten(base, 0.35) : ROOF_FILL_LIGHT;
   };
@@ -151,7 +153,7 @@ export function PlanScenePreview({ wings, label, roofColor, wingColors }: { wing
       <Frame widthM={scene.widthM} heightM={scene.heightM} height={150}>
         {scene.wings.map((w) => (
           <g key={w.wingId}>
-            <polygon points={toPointsAttr(flip(w.outline, H))} fill={fillForWing(w.wingId)} stroke={LINE} strokeWidth={STROKE} />
+            <polygon points={toPointsAttr(flip(w.outline, H))} fill={fillForWing(w.wingId, w.context)} stroke={LINE} strokeWidth={STROKE} />
             {w.ridgeLine && (
               <line x1={w.ridgeLine[0].x} y1={H - w.ridgeLine[0].y} x2={w.ridgeLine[1].x} y2={H - w.ridgeLine[1].y} stroke={LINE} strokeWidth={STROKE * 1.8} />
             )}
@@ -170,6 +172,9 @@ export function PlanScenePreview({ wings, label, roofColor, wingColors }: { wing
               />
             )}
             {w.chimney && <polygon points={toPointsAttr(flip(w.chimney, H))} fill="#ffffff" stroke={LINE} strokeWidth={STROKE * 1.5} />}
+            {w.rooflights.map((r, i) => (
+              <polygon key={`rl${i}`} points={toPointsAttr(flip(r, H))} fill={openingFill("rooflight")} stroke={LINE} strokeWidth={STROKE} />
+            ))}
           </g>
         ))}
         <defs>

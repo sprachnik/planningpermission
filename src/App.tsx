@@ -202,7 +202,7 @@ export default function App() {
   const [showAuth, setShowAuth] = useState(false);
   const [user, setUser] = useState<StubUser | null>(() => getUser());
   /** Draft for the "Edit details" modal; null = closed */
-  const [draft, setDraft] = useState<{ name: string; address: string } | null>(null);
+  const [draft, setDraft] = useState<{ name: string; address: string; applicant: string; agent: string; joinery: string; rainwater: string } | null>(null);
 
   useEffect(() => {
     repository.listCases().then(setCases);
@@ -390,8 +390,17 @@ export default function App() {
           {active.name || active.address || "New case"}
           <button
             className="edit-details"
-            onClick={() => setDraft({ name: active.name ?? "", address: active.address })}
-            data-tooltip="Rename the case and set the full property address for the drawings"
+            onClick={() =>
+              setDraft({
+                name: active.name ?? "",
+                address: active.address,
+                applicant: active.applicant ?? "",
+                agent: active.agent ?? "",
+                joinery: active.joineryMaterial ?? "",
+                rainwater: active.rainwaterMaterial ?? "",
+              })
+            }
+            data-tooltip="Case name, property address, applicant and schedule materials for the drawings"
           >
             Edit details
           </button>
@@ -425,13 +434,44 @@ export default function App() {
               />
             </label>
             <p>The address prints in the title block of every drawing. Keep the postcode in it — it drives the map search.</p>
+            <div className="two-col">
+              <label>
+                Applicant
+                <input value={draft.applicant} onChange={(e) => setDraft({ ...draft, applicant: e.target.value })} placeholder="e.g. Mr & Mrs Smith" />
+              </label>
+              <label>
+                Agent (optional)
+                <input value={draft.agent} onChange={(e) => setDraft({ ...draft, agent: e.target.value })} placeholder="e.g. Jones Roofing Ltd" />
+              </label>
+              <label>
+                Windows &amp; doors
+                <input value={draft.joinery} onChange={(e) => setDraft({ ...draft, joinery: e.target.value })} placeholder="e.g. White uPVC (unchanged)" />
+              </label>
+              <label>
+                Rainwater goods
+                <input value={draft.rainwater} onChange={(e) => setDraft({ ...draft, rainwater: e.target.value })} placeholder="e.g. Black uPVC (unchanged)" />
+              </label>
+            </div>
+            <p>
+              <small className="muted">
+                Applicant and agent print in every title block; joinery and rainwater descriptions fill the Schedule of Materials. All optional.
+              </small>
+            </p>
             <div className="modal-actions">
               <button className="secondary outline" onClick={() => setDraft(null)}>
                 Cancel
               </button>
               <button
                 onClick={() => {
-                  persist({ ...active, name: draft.name.trim() || undefined, address: draft.address.trim() });
+                  persist({
+                    ...active,
+                    name: draft.name.trim() || undefined,
+                    address: draft.address.trim(),
+                    applicant: draft.applicant.trim() || undefined,
+                    agent: draft.agent.trim() || undefined,
+                    joineryMaterial: draft.joinery.trim() || undefined,
+                    rainwaterMaterial: draft.rainwater.trim() || undefined,
+                  });
                   setDraft(null);
                 }}
               >
@@ -461,6 +501,7 @@ export default function App() {
           <LocationPlanStep
             address={active.address}
             boundary={active.boundary}
+            blueLine={active.blueLine}
             mapCentre={active.mapCentre}
             locationPlanImage={active.locationPlanImage}
             locationPlanScale={active.locationPlanScale}

@@ -33,6 +33,20 @@ function pitchRise(run: number, pitchDegrees: number): number {
   return run * Math.tan((pitchDegrees * Math.PI) / 180);
 }
 
+/**
+ * Gable ridge position along the depth axis. Symmetric roofs put it at D/2;
+ * when `rearPitchDegrees` differs the ridge sits where the two slopes (front
+ * rising at `pitchDegrees`, rear at `rearPitchDegrees`, sharing one eave
+ * height) meet: y·tan(front) = (D−y)·tan(rear).
+ */
+export function gableRidgeY(params: RoofParams): number {
+  const D = params.depthM;
+  const t1 = Math.tan((params.pitchDegrees * Math.PI) / 180);
+  const t2 = Math.tan(((params.rearPitchDegrees ?? params.pitchDegrees) * Math.PI) / 180);
+  if (t1 + t2 <= 1e-9) return D / 2;
+  return (D * t2) / (t1 + t2);
+}
+
 export function computeRoofPlan(params: RoofParams): RoofPlanGeometry {
   const { widthM: W, depthM: D, roofType, pitchDegrees, eaveHeightM } = params;
   const outline: Point[] = [
@@ -66,18 +80,19 @@ export function computeRoofPlan(params: RoofParams): RoofPlanGeometry {
     };
   }
 
-  const ridgeHeightM = eaveHeightM + pitchRise(D / 2, pitchDegrees);
-
   if (roofType === "gable") {
+    const ridgeY = gableRidgeY(params);
     return {
       outline,
-      ridgeLine: [{ x: 0, y: D / 2 }, { x: W, y: D / 2 }],
+      ridgeLine: [{ x: 0, y: ridgeY }, { x: W, y: ridgeY }],
       hipLines: [],
       apex: null,
       slopeArrow: null,
-      ridgeHeightM,
+      ridgeHeightM: eaveHeightM + pitchRise(ridgeY, pitchDegrees),
     };
   }
+
+  const ridgeHeightM = eaveHeightM + pitchRise(D / 2, pitchDegrees);
 
   // hip
   const inset = D / 2;
@@ -253,6 +268,7 @@ export function computeElevation(params: RoofParams, view: ElevationView): Eleva
   }
 
   // view A: end elevation — triangular gable/hip-end silhouette for both types
+  const apexY = roofType === "gable" ? gableRidgeY(params) : D / 2;
   return {
     widthM: D,
     eaveHeightM,
@@ -260,13 +276,13 @@ export function computeElevation(params: RoofParams, view: ElevationView): Eleva
     profile: [
       { x: 0, y: 0 },
       { x: 0, y: eaveHeightM },
-      { x: D / 2, y: ridgeH },
+      { x: apexY, y: ridgeH },
       { x: D, y: eaveHeightM },
       { x: D, y: 0 },
     ],
     roofProfile: [
       { x: 0, y: eaveHeightM },
-      { x: D / 2, y: ridgeH },
+      { x: apexY, y: ridgeH },
       { x: D, y: eaveHeightM },
     ],
   };

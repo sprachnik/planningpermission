@@ -14,10 +14,19 @@ const DEFAULT_CENTRE: BoundaryPoint = { lng: -1.3, lat: 51.5 }; // roughly centr
 interface Props {
   address: string;
   boundary: BoundaryPoint[];
+  /** Other land in the applicant's ownership — the optional blue line */
+  blueLine?: BoundaryPoint[];
   mapCentre?: BoundaryPoint;
   locationPlanImage?: string;
   locationPlanScale?: 1250 | 2500;
-  onChange: (updates: { address?: string; boundary?: BoundaryPoint[]; mapCentre?: BoundaryPoint; locationPlanImage?: string; locationPlanScale?: 1250 | 2500 }) => void;
+  onChange: (updates: {
+    address?: string;
+    boundary?: BoundaryPoint[];
+    blueLine?: BoundaryPoint[];
+    mapCentre?: BoundaryPoint;
+    locationPlanImage?: string;
+    locationPlanScale?: 1250 | 2500;
+  }) => void;
 }
 
 /** Pull a UK postcode out of a free-text address, if present. */
@@ -48,18 +57,22 @@ function boundaryToGeoJson(boundary: BoundaryPoint[]): FeatureCollection {
   return { type: "FeatureCollection", features };
 }
 
-export function LocationPlanStep({ address, boundary, mapCentre, locationPlanImage, locationPlanScale, onChange }: Props) {
+export function LocationPlanStep({ address, boundary, blueLine = [], mapCentre, locationPlanImage, locationPlanScale, onChange }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const boundaryRef = useRef<BoundaryPoint[]>(boundary);
+  const blueRef = useRef<BoundaryPoint[]>(blueLine);
   const [postcode, setPostcode] = useState(() => extractPostcode(address) ?? "");
-  const [drawing, setDrawing] = useState(false);
+  /** null = not drawing; otherwise which line clicks add points to */
+  const [drawTarget, setDrawTarget] = useState<"red" | "blue" | null>(null);
+  const drawing = drawTarget !== null;
   const [capturing, setCapturing] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
   const [premiumRequired, setPremiumRequired] = useState(false);
   const [basemapUnavailable, setBasemapUnavailable] = useState(false);
 
   boundaryRef.current = boundary;
+  blueRef.current = blueLine;
 
   useEffect(() => {
     const container = containerRef.current;
@@ -110,6 +123,10 @@ export function LocationPlanStep({ address, boundary, mapCentre, locationPlanIma
         map.addSource("boundary", { type: "geojson", data: boundaryToGeoJson(boundaryRef.current) });
         map.addLayer({ id: "boundary-line", type: "line", source: "boundary", filter: ["==", "$type", "LineString"], paint: { "line-color": "#e02424", "line-width": 2 } });
         map.addLayer({ id: "boundary-points", type: "circle", source: "boundary", filter: ["==", "$type", "Point"], paint: { "circle-color": "#e02424", "circle-radius": 4 } });
+        // Blue line — other land in the applicant's ownership (optional)
+        map.addSource("blueline", { type: "geojson", data: boundaryToGeoJson(blueRef.current) });
+        map.addLayer({ id: "blueline-line", type: "line", source: "blueline", filter: ["==", "$type", "LineString"], paint: { "line-color": "#1d4ed8", "line-width": 2 } });
+        map.addLayer({ id: "blueline-points", type: "circle", source: "blueline", filter: ["==", "$type", "Point"], paint: { "circle-color": "#1d4ed8", "circle-radius": 4 } });
 
         // If the case has no saved position yet but the address has a postcode, jump straight there.
         if (!mapCentre) {
@@ -128,37 +145,45 @@ export function LocationPlanStep({ address, boundary, mapCentre, locationPlanIma
       map.on("click", (e) => {
         if (!drawingRef.current || !map) return;
         // Clicks on an existing point are for dragging it, not adding a new one.
-        if (map.getLayer("boundary-points") && map.queryRenderedFeatures(e.point, { layers: ["boundary-points"] }).length > 0) return;
-        const next = [...boundaryRef.current, { lng: e.lngLat.lng, lat: e.lngLat.lat }];
-        boundaryRef.current = next;
-        onChangeRef.current({ boundary: next });
+        const pointLayers = ["boundary-points", "blueline-points"].filter((l) => map!.getLayer(l));
+        if (pointLayers.length && map.queryRenderedFeatures(e.point, { layers: pointLayers }).length > 0) return;
+        const target = drawingRef.current;
+        const ref = target === "blue" ? blueRef : boundaryRef;
+        const next = [...ref.current, { lng: e.lngLat.lng, lat: e.lngLat.lat }];
+        ref.current = next;
+        onChangeRef.current(target === "blue" ? { blueLine: next } : { boundary: next });
       });
 
-      // Drag an existing boundary point to move it. The source is updated
-      // directly during the drag; the case is only saved on mouseup.
-      map.on("mousedown", "boundary-points", (e) => {
+      // Drag an existing point of either line to move it. The source is
+      // updated directly during the drag; the case is only saved on mouseup.
+      const bindDrag = (layer: string, source: string, ref: typeof boundaryRef, save: () => void) => {
         if (!map) return;
-        const idx = e.features?.[0]?.properties?.index;
-        if (typeof idx !== "number") return;
-        e.preventDefault(); // stop the map panning under the drag
-        const m = map;
-        const src = m.getSource("boundary") as maplibregl.GeoJSONSource;
-        const onMove = (ev: maplibregl.MapMouseEvent) => {
-          boundaryRef.current = boundaryRef.current.map((p, i) => (i === idx ? { lng: ev.lngLat.lng, lat: ev.lngLat.lat } : p));
-          src.setData(boundaryToGeoJson(boundaryRef.current));
-        };
-        m.on("mousemove", onMove);
-        m.once("mouseup", () => {
-          m.off("mousemove", onMove);
-          onChangeRef.current({ boundary: boundaryRef.current });
+        map.on("mousedown", layer, (e) => {
+          if (!map) return;
+          const idx = e.features?.[0]?.properties?.index;
+          if (typeof idx !== "number") return;
+          e.preventDefault(); // stop the map panning under the drag
+          const m = map;
+          const src = m.getSource(source) as maplibregl.GeoJSONSource;
+          const onMove = (ev: maplibregl.MapMouseEvent) => {
+            ref.current = ref.current.map((p, i) => (i === idx ? { lng: ev.lngLat.lng, lat: ev.lngLat.lat } : p));
+            src.setData(boundaryToGeoJson(ref.current));
+          };
+          m.on("mousemove", onMove);
+          m.once("mouseup", () => {
+            m.off("mousemove", onMove);
+            save();
+          });
         });
-      });
-      map.on("mouseenter", "boundary-points", () => {
-        map?.getCanvas().style.setProperty("cursor", "move");
-      });
-      map.on("mouseleave", "boundary-points", () => {
-        map?.getCanvas().style.setProperty("cursor", drawingRef.current ? "crosshair" : "");
-      });
+        map.on("mouseenter", layer, () => {
+          map?.getCanvas().style.setProperty("cursor", "move");
+        });
+        map.on("mouseleave", layer, () => {
+          map?.getCanvas().style.setProperty("cursor", drawingRef.current ? "crosshair" : "");
+        });
+      };
+      bindDrag("boundary-points", "boundary", boundaryRef, () => onChangeRef.current({ boundary: boundaryRef.current }));
+      bindDrag("blueline-points", "blueline", blueRef, () => onChangeRef.current({ blueLine: blueRef.current }));
 
       map.getCanvas().style.setProperty("cursor", drawingRef.current ? "crosshair" : "");
 
@@ -186,8 +211,8 @@ export function LocationPlanStep({ address, boundary, mapCentre, locationPlanIma
   }, []);
 
   // keep latest drawing/onChange in refs so the map click handler (bound once) sees current values
-  const drawingRef = useRef(drawing);
-  drawingRef.current = drawing;
+  const drawingRef = useRef(drawTarget);
+  drawingRef.current = drawTarget;
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
 
@@ -198,21 +223,31 @@ export function LocationPlanStep({ address, boundary, mapCentre, locationPlanIma
     src?.setData(boundaryToGeoJson(boundary));
   }, [boundary]);
 
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    const src = map.getSource("blueline") as maplibregl.GeoJSONSource | undefined;
+    src?.setData(boundaryToGeoJson(blueLine));
+  }, [blueLine]);
+
   // A precise crosshair while placing points beats the default grab hand.
   useEffect(() => {
     mapRef.current?.getCanvas().style.setProperty("cursor", drawing ? "crosshair" : "");
   }, [drawing]);
 
   function undoPoint() {
-    if (boundaryRef.current.length === 0) return;
-    const next = boundaryRef.current.slice(0, -1);
-    boundaryRef.current = next;
-    onChangeRef.current({ boundary: next });
+    // Undo targets the line being drawn (the red boundary when not drawing)
+    const target = drawingRef.current === "blue" ? "blue" : "red";
+    const ref = target === "blue" ? blueRef : boundaryRef;
+    if (ref.current.length === 0) return;
+    const next = ref.current.slice(0, -1);
+    ref.current = next;
+    onChangeRef.current(target === "blue" ? { blueLine: next } : { boundary: next });
   }
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z" && boundaryRef.current.length > 0) {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") {
         e.preventDefault();
         undoPoint();
       }
@@ -239,6 +274,11 @@ export function LocationPlanStep({ address, boundary, mapCentre, locationPlanIma
   }
 
   function clearBoundary() {
+    if (drawTarget === "blue") {
+      blueRef.current = [];
+      onChange({ blueLine: [] });
+      return;
+    }
     boundaryRef.current = [];
     onChange({ boundary: [] });
   }
@@ -319,21 +359,40 @@ export function LocationPlanStep({ address, boundary, mapCentre, locationPlanIma
           </div>
         </div>
         <div className="toolbar-group">
-          <span className="group-label">2 · Red-line boundary</span>
+          <span className="group-label">2 · Site boundary</span>
           <div className="controls">
             <button
-              className={drawing ? undefined : "secondary"}
-              onClick={() => setDrawing((d) => !d)}
-              aria-pressed={drawing}
+              className={drawTarget === "red" ? undefined : "secondary"}
+              onClick={() => setDrawTarget((t) => (t === "red" ? null : "red"))}
+              aria-pressed={drawTarget === "red"}
               disabled={keyMissing}
-              data-tooltip="Trace the whole plot — garden and drive included, not just the house"
+              data-tooltip="Trace the whole plot — garden, drive and access to the road included, not just the house"
             >
-              {drawing ? "Stop drawing" : "Draw boundary"}
+              {drawTarget === "red" ? "Stop drawing" : "Draw red line"}
             </button>
-            <button className="secondary outline" onClick={undoPoint} disabled={boundary.length === 0} data-tooltip="Remove the last point (Ctrl+Z)">
+            <button
+              className={drawTarget === "blue" ? undefined : "secondary outline"}
+              onClick={() => setDrawTarget((t) => (t === "blue" ? null : "blue"))}
+              aria-pressed={drawTarget === "blue"}
+              disabled={keyMissing}
+              data-tooltip="Optional: other land you own next to the site (the blue line)"
+            >
+              {drawTarget === "blue" ? "Stop drawing" : "Draw blue line"}
+            </button>
+            <button
+              className="secondary outline"
+              onClick={undoPoint}
+              disabled={(drawTarget === "blue" ? blueLine : boundary).length === 0}
+              data-tooltip="Remove the last point (Ctrl+Z)"
+            >
               Undo point
             </button>
-            <button className="secondary outline" onClick={clearBoundary} disabled={boundary.length === 0} data-tooltip="Start the red line again">
+            <button
+              className="secondary outline"
+              onClick={clearBoundary}
+              disabled={(drawTarget === "blue" ? blueLine : boundary).length === 0}
+              data-tooltip={drawTarget === "blue" ? "Start the blue line again" : "Start the red line again"}
+            >
               Clear
             </button>
           </div>
@@ -365,8 +424,8 @@ export function LocationPlanStep({ address, boundary, mapCentre, locationPlanIma
       {status && <p className="hint">{status}</p>}
       {drawing && (
         <p className="hint">
-          Click the map to place points in order around the property — the red line closes itself. Drag a point to move it; Undo (or Ctrl+Z) removes
-          the last one.
+          Click the map to place points in order around the {drawTarget === "blue" ? "other land you own — the blue line" : "property — the red line"}{" "}
+          closes itself. Drag a point to move it; Undo (or Ctrl+Z) removes the last one.
         </p>
       )}
       {!keyMissing && <div ref={containerRef} className="map-container" />}

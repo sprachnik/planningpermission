@@ -37,10 +37,17 @@ export function toPointsAttr(points: Point[]): string {
   return points.map((p) => `${p.x.toFixed(3)},${p.y.toFixed(3)}`).join(" ");
 }
 
+// Context-only neighbour buildings render muted so the application property reads clearly
+export const CONTEXT_WALL_FILL = "#f4f3f0";
+export const CONTEXT_ROOF_FILL = "#d4d6d9";
+
 /** Fill for a projected opening face. Doors/windows/garage doors read as white
- *  joinery; an open doorway (porch/carport aperture) reads as a dark void. */
-export function openingFill(type?: Opening["type"]): string {
-  return type === "open" ? "#8c8c8c" : "#ffffff";
+ *  joinery; an open doorway (porch/carport aperture) reads as a dark void;
+ *  a rooflight reads as glass on the slope. */
+export function openingFill(type?: Opening["type"] | "rooflight"): string {
+  if (type === "open") return "#8c8c8c";
+  if (type === "rooflight") return "#dbe7f0";
+  return "#ffffff";
 }
 
 /** Horizontal panel lines that make a garage door read as a sectional door.

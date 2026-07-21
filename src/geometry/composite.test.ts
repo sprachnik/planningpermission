@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import type { Wing } from "../data/types";
-import { planScene, elevationScene, obliqueScene } from "./composite";
+import { planScene, elevationScene, obliqueScene, buildingHeights } from "./composite";
 import type { Direction, Scene2D } from "./composite";
 
 const DIRS: Direction[] = ["N", "E", "S", "W"];
@@ -217,6 +217,40 @@ describe("openings", () => {
     expect(Math.min(...sill.points.map((p) => p.y))).toBeCloseTo(0.9, 6);
   });
 
+  it("gable-end windows can sit above the eave, up in the gable peak", () => {
+    // left wall of a gable rises to the ridge (~7.52 m); a window with its
+    // sill above the 5 m eave must survive the clamp and show on the W
+    // elevation at true height (feedback: upper windows in gable end walls)
+    const upper = { ...window, side: "left" as const, offsetM: 2.5, widthM: 1, sillM: 5.5, heightM: 1 };
+    const scene = elevationScene([gable({ openings: [upper] })], "W");
+    const rect = scene.polygons.find((p) => p.kind === "opening")!;
+    const ys = rect.points.map((p) => p.y);
+    expect(Math.min(...ys)).toBeCloseTo(5.5, 3);
+    expect(Math.max(...ys)).toBeCloseTo(6.5, 3);
+  });
+
+  it("gable-end windows still clamp to the sloping wall top near the corners", () => {
+    // near the wall's low corner the roof line, not the eave, is the limit
+    const corner = { ...window, side: "left" as const, offsetM: 0.2, widthM: 1, sillM: 5.5, heightM: 3 };
+    const scene = elevationScene([gable({ openings: [corner] })], "W");
+    const rect = scene.polygons.find((p) => p.kind === "opening")!;
+    const r = 5 + 3 * Math.tan((40 * Math.PI) / 180);
+    for (const p of rect.points) {
+      expect(p.y).toBeLessThanOrEqual(r);
+    }
+  });
+
+  it("side-wall openings stay visible in the oblique view (painter anchors them to their wall)", () => {
+    // regression: an opening in the back half of a side wall has a deeper
+    // centroid than its wall's and used to be painted underneath it
+    const backHalf = { ...window, side: "right" as const, offsetM: 4, sillM: 1 };
+    const scene = obliqueScene([gable({ openings: [backHalf] })]);
+    const openIdx = scene.polygons.findIndex((p) => p.kind === "opening");
+    const wallIdx = scene.polygons.findIndex((p) => p.kind === "wall" && p.points.length === 5); // the visible gable-end pentagon
+    expect(openIdx).toBeGreaterThan(wallIdx);
+    expect(wallIdx).toBeGreaterThanOrEqual(0);
+  });
+
   it("oversized openings are clamped inside the wall", () => {
     const silly = { ...window, offsetM: -5, widthM: 50, heightM: 50, sillM: -2 };
     const scene = elevationScene([gable({ openings: [silly] })], "S");
@@ -273,11 +307,144 @@ describe("chimney", () => {
     expect(scene.wings[0].chimney).toHaveLength(4);
   });
 
+  it("an external gable-end stack rises from the ground past the ridge", () => {
+    const wings = [gable({ chimney: { offsetM: 0, position: "end-left" } })];
+    const ridge = 5 + 3 * Math.tan((40 * Math.PI) / 180);
+    const west = elevationScene(wings, "W");
+    const chimneyPolys = west.polygons.filter((p) => p.kind === "chimney");
+    expect(chimneyPolys.length).toBeGreaterThan(0);
+    const ys = chimneyPolys.flatMap((p) => p.points.map((q) => q.y));
+    expect(Math.min(...ys)).toBeCloseTo(0, 3); // grounded, not perched on the ridge
+    expect(Math.max(...ys)).toBeCloseTo(ridge + 0.8, 3);
+    // plan footprint pokes out beyond the gable wall (negative x), centred on the ridge line
+    const plan = planScene(wings);
+    const rect = plan.wings[0].chimney!;
+    const midY = (Math.min(...rect.map((p) => p.y)) + Math.max(...rect.map((p) => p.y))) / 2;
+    expect(midY).toBeCloseTo(3, 3);
+    expect(Math.min(...rect.map((p) => p.x))).toBeLessThan(0);
+  });
+
   it("is ignored for mono-pitch roofs", () => {
     const mono = gable({ roofType: "mono-pitch", chimney: { offsetM: 2 } });
     const scene = elevationScene([mono], "S");
     expect(scene.polygons.filter((p) => p.kind === "chimney")).toHaveLength(0);
     expect(planScene([mono]).wings[0].chimney).toBeUndefined();
+  });
+});
+
+describe("asymmetric gable (per-slope pitch)", () => {
+  const asym = () => gable({ pitchDegrees: 40, rearPitchDegrees: 20 });
+  const t40 = Math.tan((40 * Math.PI) / 180);
+  const t20 = Math.tan((20 * Math.PI) / 180);
+  const ridgeY = (6 * t20) / (t40 + t20);
+  const ridgeH = 5 + ridgeY * t40;
+
+  it("moves the ridge toward the steeper slope, both slopes meeting at one height", () => {
+    const plan = planScene([asym()]);
+    expect(plan.wings[0].ridgeLine![0].y).toBeCloseTo(ridgeY, 6);
+    // cross-check: the shallow rear slope reaches the same ridge height
+    expect(5 + (6 - ridgeY) * t20).toBeCloseTo(ridgeH, 6);
+  });
+
+  it("elevations top out at the asymmetric ridge height", () => {
+    for (const dir of DIRS) {
+      const scene = elevationScene([asym()], dir);
+      expectWellFormed(scene);
+      expect(scene.heightM).toBeCloseTo(ridgeH, 6);
+    }
+  });
+
+  it("no rearPitchDegrees means the symmetric roof is unchanged", () => {
+    const plain = planScene([gable()]);
+    expect(plain.wings[0].ridgeLine![0].y).toBeCloseTo(3, 6);
+  });
+
+  it("chimney straddles the off-centre ridge", () => {
+    const scene = planScene([{ ...asym(), chimney: { offsetM: 4 } }]);
+    const ys = scene.wings[0].chimney!.map((p) => p.y);
+    expect((Math.min(...ys) + Math.max(...ys)) / 2).toBeCloseTo(ridgeY, 6);
+  });
+});
+
+describe("zOrder layering", () => {
+  it("a raised block paints over blocks that would normally cover it", () => {
+    const near = gable({ id: "near", y: 0 });
+    const far = gable({ id: "far", y: 10 });
+    // default: far block first (painter), near block on top
+    const plain = elevationScene([near, far], "S");
+    expect(plain.polygons[plain.polygons.length - 1].wingId).toBe("near");
+    // raising the far block forces it on top regardless of depth
+    const layered = elevationScene([near, { ...far, zOrder: 1 }], "S");
+    expect(layered.polygons[layered.polygons.length - 1].wingId).toBe("far");
+    expect(layered.polygons[0].wingId).toBe("near");
+  });
+
+  it("plan view honours the layer order for overlapping outlines", () => {
+    const scene = planScene([gable({ id: "a", zOrder: 1 }), gable({ id: "b", x: 2, y: 2 })]);
+    expect(scene.wings.map((w) => w.wingId)).toEqual(["b", "a"]);
+  });
+});
+
+describe("buildingHeights", () => {
+  it("reports the tallest ridge and highest eaves across blocks, ignoring chimneys", () => {
+    const main = gable({ chimney: { offsetM: 4 } }); // ridge ≈ 7.52, eaves 5
+    const ext = gable({ id: "w2", roofType: "flat", eaveHeightM: 3 });
+    const h = buildingHeights([main, ext]);
+    expect(h.maxRidgeM).toBeCloseTo(5 + 3 * Math.tan((40 * Math.PI) / 180), 6);
+    expect(h.maxEaveM).toBeCloseTo(5, 6);
+    expect(buildingHeights([])).toEqual({ maxRidgeM: 0, maxEaveM: 0 });
+  });
+
+  it("includes ground offsets and excludes context-only neighbour blocks", () => {
+    const uphill = gable({ groundOffsetM: 0.5 });
+    const neighbour = gable({ id: "n1", eaveHeightM: 20, isContext: true });
+    const h = buildingHeights([uphill, neighbour]);
+    expect(h.maxRidgeM).toBeCloseTo(5.5 + 3 * Math.tan((40 * Math.PI) / 180), 6);
+    expect(h.maxEaveM).toBeCloseTo(5.5, 6);
+  });
+});
+
+describe("rooflights", () => {
+  const rl = { id: "r1", plane: "front" as const, offsetM: 2, upSlopeM: 1, widthM: 0.78, lengthM: 1.4 };
+
+  it("shows on the elevation facing its slope, not the opposite one", () => {
+    const wings = [gable({ rooflights: [rl] })];
+    const south = elevationScene(wings, "S").polygons.filter((p) => p.openingType === "rooflight");
+    const north = elevationScene(wings, "N").polygons.filter((p) => p.openingType === "rooflight");
+    expect(south).toHaveLength(1);
+    expect(north).toHaveLength(0);
+    // it sits above the eave (on the roof slope) and is drawn after roof planes
+    const ys = south[0].points.map((p) => p.y);
+    expect(Math.min(...ys)).toBeGreaterThan(5);
+  });
+
+  it("appears on the roof plan as a rectangle within the slope", () => {
+    const scene = planScene([gable({ rooflights: [rl] })]);
+    expect(scene.wings[0].rooflights).toHaveLength(1);
+    const ys = scene.wings[0].rooflights[0].map((p) => p.y);
+    expect(Math.min(...ys)).toBeGreaterThan(0);
+    expect(Math.max(...ys)).toBeLessThan(3); // front slope only (ridge at y=3)
+  });
+
+  it("is ignored on roof types that can't carry one", () => {
+    const scene = planScene([gable({ roofType: "hip", rooflights: [rl] })]);
+    expect(scene.wings[0].rooflights).toHaveLength(0);
+  });
+});
+
+describe("context blocks and ground offsets", () => {
+  it("context blocks project with the context flag for muted rendering", () => {
+    const wings = [gable(), gable({ id: "n1", x: 8, isContext: true })];
+    const scene = elevationScene(wings, "S");
+    expect(scene.polygons.some((p) => p.context)).toBe(true);
+    expect(scene.polygons.filter((p) => p.wingId === "w1").every((p) => !p.context)).toBe(true);
+  });
+
+  it("a ground offset lifts the whole block", () => {
+    const scene = elevationScene([gable({ groundOffsetM: 1 })], "S");
+    const wallYs = scene.polygons.filter((p) => p.kind === "wall").flatMap((p) => p.points.map((q) => q.y));
+    expect(Math.min(...wallYs)).toBeCloseTo(0, 6); // scene normalised to its own base…
+    expect(scene.heightM).toBeCloseTo(5 + 3 * Math.tan((40 * Math.PI) / 180), 6); // …height unchanged relative to its base
   });
 });
 

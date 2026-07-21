@@ -10,10 +10,10 @@
 import { useRef } from "react";
 import type { Opening, Wing } from "../../data/types";
 import { obliqueScene, elevationScene, wingsBounds, OBLIQUE_KX, OBLIQUE_KY } from "../../geometry/composite";
-import { wingRotation } from "../../geometry/faces3d";
+import { wingRotation, openingTopLimit } from "../../geometry/faces3d";
 import type { Direction } from "../../geometry/composite";
 import type { Point } from "../../geometry/roof";
-import { WALL_FILL, ROOF_FILL, lighten, toPointsAttr, openingFill, garagePanelLines } from "../svgDraw";
+import { WALL_FILL, ROOF_FILL, CONTEXT_WALL_FILL, CONTEXT_ROOF_FILL, lighten, toPointsAttr, openingFill, garagePanelLines } from "../svgDraw";
 
 export type EditorView = "3d" | Direction;
 
@@ -172,8 +172,11 @@ export function SceneEditor({ wings, view, selectedWingId, selectedOpeningId, gr
 
     if (drag.mode === "move") {
       const offsetM = clamp(doSnap(orig.offsetM + da), 0.05, wallLen - orig.widthM - 0.05);
-      // only windows can leave the ground; doors, garage doors and open doorways stay grounded
-      const sillM = orig.type !== "window" ? 0 : clamp(doSnap(orig.sillM + db), 0, wing.eaveHeightM - orig.heightM - 0.05);
+      // only windows can leave the ground; doors, garage doors and open doorways
+      // stay grounded. The ceiling is the wall's real top at this position —
+      // gable-end and mono-pitch walls rise above the eave.
+      const top = openingTopLimit(wing, orig.side, offsetM, offsetM + orig.widthM);
+      const sillM = orig.type !== "window" ? 0 : clamp(doSnap(orig.sillM + db), 0, top - orig.heightM - 0.05);
       patch = { offsetM, sillM };
     } else {
       // resize: the dragged corner moves, its opposite edges stay put
@@ -188,8 +191,11 @@ export function SceneEditor({ wings, view, selectedWingId, selectedOpeningId, gr
         patch.widthM = clamp(doSnap(orig.widthM + da), 0.3, wallLen - orig.offsetM - 0.05);
       }
       if (corner === 2 || corner === 3) {
-        // top edge
-        patch.heightM = clamp(doSnap(orig.heightM + db), 0.3, wing.eaveHeightM - orig.sillM - 0.05);
+        // top edge — capped by the wall's real top over the opening's span
+        const from = patch.offsetM ?? orig.offsetM;
+        const width = patch.widthM ?? orig.widthM;
+        const top = openingTopLimit(wing, orig.side, from, from + width);
+        patch.heightM = clamp(doSnap(orig.heightM + db), 0.3, top - orig.sillM - 0.05);
       } else if (orig.type === "window") {
         // bottom edge: keep the head fixed (doors stay grounded)
         const sillM = clamp(doSnap(orig.sillM + db), 0, orig.sillM + orig.heightM - 0.3);
@@ -232,8 +238,11 @@ export function SceneEditor({ wings, view, selectedWingId, selectedOpeningId, gr
         {scene.polygons.map((poly, i) => {
           const isOpening = poly.kind === "opening";
           const isSelected = isOpening && poly.openingId === selectedOpeningId;
-          const fill =
-            poly.kind === "roof"
+          const fill = poly.context
+            ? poly.kind === "roof"
+              ? CONTEXT_ROOF_FILL
+              : CONTEXT_WALL_FILL
+            : poly.kind === "roof"
               ? i % 2
                 ? lighten(roofBaseFor(poly.wingId), 0.22)
                 : roofBaseFor(poly.wingId)

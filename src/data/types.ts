@@ -12,6 +12,10 @@ export interface RoofParams {
   depthM: number;
   roofType: RoofType;
   pitchDegrees: number;
+  /** Gable only: pitch of the rear (local y=depth) slope when it differs from
+   *  the front — the ridge moves off-centre so both slopes meet at one height.
+   *  Undefined = symmetric roof (both slopes at `pitchDegrees`). */
+  rearPitchDegrees?: number;
   eaveHeightM: number;
   /** Only used for mono-pitch: which edge is the high edge */
   highEdge?: "width-start" | "width-end" | "depth-start" | "depth-end";
@@ -46,13 +50,35 @@ export interface Opening {
   sillM: number;
 }
 
-/** A simple masonry chimney stack sitting on the ridge. */
+/** A rooflight (e.g. conservation Velux) lying in a roof plane. Gable and
+ *  mono-pitch planes only for now — hip planes are trapezoids and need
+ *  proper in-plane clamping before they can carry one. */
+export interface Rooflight {
+  id: string;
+  /** Which slope, in the wing's local frame: "front" is the plane rising
+   *  from the y=0 eave. Ignored for mono-pitch (single plane). */
+  plane: "front" | "back";
+  /** Distance (m) along the ridge/level axis from the wing's local x=0 end */
+  offsetM: number;
+  /** Distance (m) up the slope from the eave to the rooflight's lower edge */
+  upSlopeM: number;
+  /** Size along the ridge/level axis (m) */
+  widthM: number;
+  /** Size up the slope (m) */
+  lengthM: number;
+}
+
+/** A simple masonry chimney stack: on the ridge, or an external stack rising
+ *  up a gable-end wall from the ground (gable roofs only for end positions). */
 export interface ChimneySpec {
-  /** Distance (m) along the ridge axis from the wing's local x=0 end */
+  /** "ridge" (default) or an external stack on the left/right gable end */
+  position?: "ridge" | "end-left" | "end-right";
+  /** Ridge stacks: distance (m) along the ridge axis from the wing's local
+   *  x=0 end. End stacks sit centred on the ridge line automatically. */
   offsetM: number;
   /** Stack size along the ridge (m); defaults to 0.9 */
   alongM?: number;
-  /** Stack size across the ridge (m); defaults to 0.5 */
+  /** Stack size across the ridge / out from the gable wall (m); defaults to 0.5 */
   acrossM?: number;
 }
 
@@ -70,6 +96,22 @@ export interface Wing extends RoofParams {
   openings?: Opening[];
   /** Gable/hip only (needs a ridge) */
   chimney?: ChimneySpec;
+  /** Rooflights lying in the roof planes (gable/mono-pitch only) */
+  rooflights?: Rooflight[];
+  /** Ground level of this block's base relative to the case datum (m).
+   *  Positive = uphill of the datum — supports stepped/sloping sites. */
+  groundOffsetM?: number;
+  /** A neighbouring building shown for context only (semis/terraces): drawn
+   *  in grey outline, excluded from schedules, height figures and notes. */
+  isContext?: boolean;
+  /** Number of storeys, for the floor plan pages (default 1) */
+  storeys?: number;
+  /** Room names per storey (index 0 = ground floor), comma-separated within
+   *  each entry — printed on the floor plan pages. Display-only. */
+  roomLabels?: string[];
+  /** Facing wall material for this block (e.g. "Red stock brick") — printed
+   *  in the schedule; existing/proposed context comes from the wing set. */
+  wallMaterial?: string;
   /** Roof covering override for this block. Interpreted in the context of the
    *  wing set it belongs to (existing house vs proposed); falls back to the
    *  case-level `materials` label/colour when unset. */
@@ -78,6 +120,10 @@ export interface Wing extends RoofParams {
   /** Proposed-house blocks only: this block keeps its existing covering —
    *  drawings and the schedule show it as unchanged. */
   materialUnchanged?: boolean;
+  /** Manual paint-order override for overlapping blocks (higher = drawn on
+   *  top; default 0). Display aid only — the painter sort still orders by
+   *  depth within each layer, and geometry is unaffected. */
+  zOrder?: number;
 }
 
 export interface PlanningCase {
@@ -91,6 +137,16 @@ export interface PlanningCase {
   updatedAt: string;
   /** Property boundary as drawn/edited on the location plan map */
   boundary: BoundaryPoint[];
+  /** Other land in the applicant's ownership (the "blue line"), when any */
+  blueLine?: BoundaryPoint[];
+  /** Applicant name for the title blocks and statement page */
+  applicant?: string;
+  /** Agent name (the person preparing the drawings), when different */
+  agent?: string;
+  /** Window/door joinery description for the schedule (e.g. "White uPVC") */
+  joineryMaterial?: string;
+  /** Rainwater goods description for the schedule (e.g. "Black uPVC") */
+  rainwaterMaterial?: string;
   /** Map centre used to render the location plan */
   mapCentre?: BoundaryPoint;
   /** Captured basemap snapshot for the Location Plan PDF (data URL) */

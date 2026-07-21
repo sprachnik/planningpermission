@@ -5,11 +5,14 @@ tool, not open source. Docs in `docs/`: `OVERVIEW.md` (architecture TLDR +
 expansion levers), `value-research.md` (commercial case),
 `automation-ideas.md` (auto-trace/photo/LiDAR ideation).
 
-Generates the drawing set a UK householder planning application needs for a
-like-for-like roof material change (e.g. Kent peg tile → grey slate):
-Location Plan (1:1250/1:2500), Existing/Proposed Roof Plans and four
-Existing/Proposed Elevations (1:100), each with an accurate scale bar,
-bundled as one PDF for the Planning Portal.
+Generates the drawing set a UK householder planning application needs
+(re-roofs, extensions, dormer/loft work): Location Plan (1:1250/1:2500 with
+red + optional blue line), Block Plan (1:200/1:500 with boundary clearance
+dimensions), Existing/Proposed Roof Plans and four Existing/Proposed
+Elevations (1:100), outline Floor Plans (auto-included for extension-type
+cases), a Schedule of Materials and a generated Planning Statement — each
+drawing with an accurate scale bar, bundled as one PDF for the Planning
+Portal.
 
 ## Commands
 
@@ -51,12 +54,21 @@ password protection).
 
 - `src/data/types.ts` — `PlanningCase` is the unit of persistence. The house
   is modelled as `wings: Wing[]`: axis-aligned rectangular blocks on a shared
-  plan grid, each with its own roof type (gable/hip/mono-pitch/flat), pitch,
-  eave height, quarter-turn rotation (`rotationDeg` 0/90/180/270; legacy
-  `rotated` boolean = 90), openings (windows/doors/garage doors/open
-  doorways per wall — only windows have a sill; garage doors render with
-  panel lines, open doorways as a dark aperture),
-  optional ridge chimney, and its own roof covering (`material`/
+  plan grid, each with its own roof type (gable/hip/mono-pitch/flat), pitch
+  (gables take an optional `rearPitchDegrees` — the ridge moves off-centre so
+  asymmetric slopes meet), eave height, quarter-turn rotation (`rotationDeg`
+  0/90/180/270; legacy `rotated` boolean = 90), openings (windows/doors/
+  garage doors/open doorways per wall — only windows have a sill, and opening
+  tops clamp to the *real* wall top, so gable-end/mono walls take upper
+  windows above the eaves; garage doors render with panel lines, open
+  doorways as a dark aperture), rooflights on gable/mono slopes,
+  `groundOffsetM` (stepped/sloping sites — heights and elevation baselines
+  follow), `zOrder` (manual painter-layer override for overlapping blocks;
+  display-only, ignored by `geometryUnchanged`), `isContext` (neighbouring
+  building drawn grey, excluded from schedules/heights/notes), `storeys` +
+  `roomLabels` (floor plan pages; display-only), `wallMaterial` (schedule),
+  optional chimney (on the ridge, or an external stack up a gable end), and
+  its own roof covering (`material`/
   `materialColor` — blocks are independent; `materialUnchanged` marks a
   proposed block keeping its existing covering). Coverings are granular by
   design — there is no whole-house material control in the UI; the proposed
@@ -193,10 +205,13 @@ PDF via `@react-pdf/renderer`, keyed by `updatedAt`).
   faces to the backface cull.
 - **react-pdf has no `<g>`** inside its `Svg`; use `Fragment`.
 - **Planning validity**: drawings should fairly represent the real house.
-  The block model approximates shape well but has no openings
-  (doors/windows), chimneys, or true valley geometry at block junctions —
-  see roadmap before treating output as submission-ready for complex
-  houses.
+  The block model now carries openings, rooflights, chimneys (ridge or
+  gable-end), asymmetric pitches, stepped ground and context neighbours, but
+  still has no true valley geometry at block junctions, no angled
+  (non-quarter-turn) wings and no hip-plane rooflights — see roadmap before
+  treating output as submission-ready for complex houses. Floor plans are
+  outline-level (block footprints + room labels), which most LPAs accept for
+  external-works applications.
 
 ## Roadmap (agreed with owner)
 
@@ -204,8 +219,18 @@ PDF via `@react-pdf/renderer`, keyed by `updatedAt`).
    windows/doors/garage doors/open doorways as coplanar faces drawn proud of
    their wall (`faces3d.ts`), ridge chimney box, composer editor section,
    rendered in previews + PDF.
-2. Photo tracing for elevations (scale from a known dimension).
-3. True valley/junction lines where blocks intersect.
-4. Netlify deploy + domain-restricted key end-to-end check.
-5. Auto-trace from OS NGD footprints / INSPIRE parcels / LiDAR — see
+2. ~~Gap-analysis pass (Jul 2026)~~ — DONE: block plan page with boundary
+   clearances (`geometry/siteplan.ts`), outline floor plans (storeys/room
+   labels), wall/joinery/rainwater materials in the schedule, rooflights
+   (gable/mono), context-only neighbour blocks, per-block ground levels with
+   stepped elevation baselines, blue line on the location plan, external
+   gable-end chimneys, NEW/ALTERED change labels on proposed drawings,
+   applicant/agent title-block metadata, generated Planning Statement page.
+3. Photo tracing for elevations (scale from a known dimension).
+4. True valley/junction lines where blocks intersect (also unlocks honest
+   dormers-as-blocks).
+5. Angled (non-quarter-turn) wings; more roof forms (half-hip, mansard);
+   rooflights on hip planes; dedicated site-section page.
+6. Netlify deploy + domain-restricted key end-to-end check.
+7. Auto-trace from OS NGD footprints / INSPIRE parcels / LiDAR — see
    `docs/automation-ideas.md`.

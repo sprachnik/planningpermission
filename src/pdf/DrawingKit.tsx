@@ -126,6 +126,8 @@ export function NorthArrow({ bearingDeg = 0 }: { bearingDeg?: number }) {
 export interface DrawingPageProps {
   title: string;
   address: string;
+  /** "Applicant: … · Agent: …" line for the title block, when captured */
+  applicantLine?: string;
   scaleDenominator: number;
   /** Real-world size (metres) of the content being drawn, used to fit/centre it. */
   drawingExtentM: { width: number; height: number };
@@ -148,6 +150,7 @@ export interface DrawingPageProps {
 export function DrawingPage({
   title,
   address,
+  applicantLine,
   scaleDenominator,
   drawingExtentM,
   drawingNumber,
@@ -211,6 +214,7 @@ export function DrawingPage({
         <View style={{ maxWidth: "38%" }}>
           <Text style={styles.titleText}>{title}</Text>
           <Text style={styles.metaText}>{address}</Text>
+          {applicantLine && <Text style={styles.metaText}>{applicantLine}</Text>}
           <Text style={styles.stampText}>
             Drawing {drawingNumber} · Rev {revision} · {dateISO} · Purpose: PLANNING
           </Text>

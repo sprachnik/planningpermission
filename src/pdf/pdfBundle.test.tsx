@@ -43,17 +43,17 @@ describe("geometryUnchanged", () => {
 });
 
 describe("PdfBundle smoke render", () => {
-  it("renders the full 8-page set for a complete case", async () => {
+  it("renders the full 10-page set for a complete case", async () => {
     const pdf: Uint8Array = await renderToBuffer(<PdfBundle planningCase={sampleCase()} />);
     expect(new TextDecoder().decode(pdf.subarray(0, 5))).toBe("%PDF-");
     expect(pdf.length).toBeGreaterThan(10_000);
-    // location + 2 roof plans + 4 elevation sheets + schedule
-    expect(pageCount(pdf)).toBe(8);
+    // location + block plan + 2 roof plans + 4 elevation sheets + schedule + statement
+    expect(pageCount(pdf)).toBe(10);
   }, 30_000);
 
-  it("omits the location plan when no boundary is drawn", async () => {
+  it("omits the location and block plans when no boundary is drawn", async () => {
     const pdf = await renderToBuffer(<PdfBundle planningCase={sampleCase({ boundary: [] })} />);
-    expect(pageCount(pdf)).toBe(7);
+    expect(pageCount(pdf)).toBe(8);
   }, 30_000);
 
   it("renders a north bearing (rotated arrow, wind-suffixed titles) and all opening types", async () => {
@@ -71,13 +71,48 @@ describe("PdfBundle smoke render", () => {
         : w,
     );
     const pdf = await renderToBuffer(<PdfBundle planningCase={sampleCase({ wings, northBearingDeg: 22.5 })} />);
-    expect(pageCount(pdf)).toBe(8);
+    expect(pageCount(pdf)).toBe(10);
   }, 30_000);
 
-  it("renders diverged proposed geometry (extension) without error", async () => {
+  it("adds floor plans for diverged proposed geometry (extension)", async () => {
     const base = sampleCase();
     const proposedWings = [...base.wings!, { id: "w3", name: "Extension", x: 0, y: 6, widthM: 5, depthM: 4, roofType: "mono-pitch" as const, pitchDegrees: 12, eaveHeightM: 2.6, highEdge: "depth-start" as const }];
     const pdf = await renderToBuffer(<PdfBundle planningCase={sampleCase({ proposedWings })} />);
-    expect(pageCount(pdf)).toBe(8);
+    // the extension case pulls in existing + proposed floor plans
+    expect(pageCount(pdf)).toBe(12);
+  }, 30_000);
+
+  it("renders rooflights, context blocks, ground offsets, blue line and applicant metadata", async () => {
+    const base = sampleCase();
+    const wings = base.wings!.map((w, i) =>
+      i === 0
+        ? {
+            ...w,
+            rooflights: [{ id: "r1", plane: "front" as const, offsetM: 2, upSlopeM: 1, widthM: 0.78, lengthM: 1.4 }],
+            groundOffsetM: 0.4,
+            storeys: 2,
+            roomLabels: ["Kitchen, Living room", "Bedroom 1, Bathroom"],
+            wallMaterial: "Red stock brick",
+          }
+        : { ...w, isContext: true },
+    );
+    const pdf = await renderToBuffer(
+      <PdfBundle
+        planningCase={sampleCase({
+          wings,
+          applicant: "Mr & Mrs Smith",
+          agent: "Jones Roofing Ltd",
+          joineryMaterial: "White uPVC",
+          rainwaterMaterial: "Black uPVC",
+          blueLine: [
+            { lng: 1.4166, lat: 51.335 },
+            { lng: 1.417, lat: 51.335 },
+            { lng: 1.417, lat: 51.3353 },
+          ],
+        })}
+      />,
+    );
+    // storeys/rooms set → floor plans included
+    expect(pageCount(pdf)).toBe(12);
   }, 30_000);
 });

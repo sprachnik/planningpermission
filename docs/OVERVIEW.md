@@ -54,10 +54,15 @@ updates. This is what makes automation cheap: **anything that can produce
 
 ## Known validity gaps (roadmap, agreed with owner)
 
-1. Openings/chimney editor on elevations — biggest validity win, cheap.
+1. ~~Openings/chimney editor on elevations~~ — done, plus the July 2026
+   gap-analysis pass: block plan with boundary clearances, outline floor
+   plans, full materials schedule, rooflights, context neighbours, ground
+   levels, blue line, external chimneys, change labels, applicant metadata
+   and a generated Planning Statement (see CLAUDE.md roadmap).
 2. Photo tracing for elevations (scale from a known dimension).
 3. True valley/junction lines where blocks intersect.
-4. Netlify deploy + domain-restricted key end-to-end check.
+4. Angled wings, half-hip/mansard roof forms, hip-plane rooflights, section page.
+5. Netlify deploy + domain-restricted key end-to-end check.
 
 ## Expansion & automation levers
 

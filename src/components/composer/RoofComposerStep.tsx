@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import type { Wing, MaterialLabels, BoundaryPoint, RoofParams, Opening } from "../../data/types";
+import type { Wing, MaterialLabels, BoundaryPoint, RoofParams, Opening, Rooflight } from "../../data/types";
 import { getNearestBuilding, isHeightConfident } from "../../os/client";
 import { boundaryCentroid, toLocalMetres } from "../../geometry/latlng";
 import { PlanCanvas } from "./PlanCanvas";
@@ -8,6 +8,7 @@ import { ElevationScenePreview, ObliquePreview, PlanScenePreview, RoofTypeThumbn
 import { roofColorFor } from "../svgDraw";
 import { wingRotation, type QuarterTurn } from "../../geometry/faces3d";
 import { windSuffix } from "../../geometry/compass";
+import { computeRoofPlan, gableRidgeY } from "../../geometry/roof";
 import type { Direction } from "../../geometry/composite";
 
 interface Props {
@@ -88,7 +89,7 @@ export function RoofComposerStep({ wings, proposedWings, materials, boundary, bo
   // Label for the previews: the case default, or "mixed coverings" once any
   // block overrides it (or keeps its existing covering on the proposed house).
   const wingMaterialLabels = new Set(
-    activeWings.map((w) => {
+    activeWings.filter((w) => !w.isContext).map((w) => {
       if (variant === "proposed" && w.materialUnchanged) {
         const existing = wings.find((e) => e.id === w.id);
         return existing?.material?.trim() || materials.existing || "existing covering";
@@ -258,6 +259,33 @@ export function RoofComposerStep({ wings, proposedWings, materials, boundary, bo
     };
     updateWing({ ...selected, openings: [...(selected.openings ?? []), opening] });
     setSelectedOpeningId(opening.id); // select + expand the new opening
+  }
+
+  /** Overall height of the selected block, to the ridge (or high edge). */
+  const selectedRidgeM = selected && selected.roofType !== "flat" ? computeRoofPlan(selected).ridgeHeightM : null;
+
+  /** Sets a block's overall height by back-solving the pitch from the eaves.
+   *  Asymmetric gables keep the ridge's plan position (both pitches rescale). */
+  function setRidgeHeight(targetM: number) {
+    if (!selected || !Number.isFinite(targetM) || targetM <= 0) return;
+    const rise = Math.max(0.05, targetM - selected.eaveHeightM);
+    const deg = (run: number) => Math.round((Math.atan(rise / run) * 180) / Math.PI * 10) / 10;
+    if (selected.roofType === "gable") {
+      const ry = gableRidgeY(selected);
+      if (ry < 1e-6 || selected.depthM - ry < 1e-6) return;
+      updateWing({
+        ...selected,
+        pitchDegrees: deg(ry),
+        ...(selected.rearPitchDegrees !== undefined ? { rearPitchDegrees: deg(selected.depthM - ry) } : {}),
+      });
+    } else if (selected.roofType === "hip") {
+      if (selected.depthM < 1e-6) return;
+      updateWing({ ...selected, pitchDegrees: deg(selected.depthM / 2) });
+    } else if (selected.roofType === "mono-pitch") {
+      const run = (selected.highEdge ?? "width-end").startsWith("width") ? selected.widthM : selected.depthM;
+      if (run < 1e-6) return;
+      updateWing({ ...selected, pitchDegrees: deg(run) });
+    }
   }
 
   function updateOpening(id: string, patch: Partial<Opening>) {
@@ -448,14 +476,39 @@ export function RoofComposerStep({ wings, proposedWings, materials, boundary, bo
                 </label>
                 {selected.roofType !== "flat" && (
                   <label>
-                    Pitch (°)
+                    {selected.roofType === "gable" ? `Pitch (°) — ${sideLabels.front} slope` : "Pitch (°)"}
                     <input type="number" step="1" value={selected.pitchDegrees} onChange={(e) => updateWing({ ...selected, pitchDegrees: Number(e.target.value) })} />
+                  </label>
+                )}
+                {selected.roofType === "gable" && (
+                  <label>
+                    Pitch (°) — {sideLabels.back} slope
+                    <input
+                      type="number"
+                      step="1"
+                      value={selected.rearPitchDegrees ?? ""}
+                      placeholder={String(selected.pitchDegrees)}
+                      onChange={(e) => updateWing({ ...selected, rearPitchDegrees: e.target.value === "" ? undefined : Number(e.target.value) })}
+                      title="Leave blank for a symmetric roof — set when one slope is steeper than the other (the ridge moves off-centre so both slopes still meet)"
+                    />
                   </label>
                 )}
                 <label>
                   Eaves (m)
                   <input type="number" step="0.1" value={selected.eaveHeightM} onChange={(e) => updateWing({ ...selected, eaveHeightM: Number(e.target.value) })} />
                 </label>
+                {selectedRidgeM !== null && (
+                  <label>
+                    Ridge height (m)
+                    <input
+                      type="number"
+                      step="0.1"
+                      value={Number(selectedRidgeM.toFixed(2))}
+                      onChange={(e) => setRidgeHeight(Number(e.target.value))}
+                      title="Overall building height to the ridge (the high edge for a lean-to). Set it directly if you know it — the pitch is recalculated from the eaves. An asymmetric gable keeps its ridge position; both pitches rescale."
+                    />
+                  </label>
+                )}
                 <label>
                   X — from west (m)
                   <input
@@ -501,6 +554,82 @@ export function RoofComposerStep({ wings, proposedWings, materials, boundary, bo
                   <option value={270}>270° — ridge north–south, flipped</option>
                 </select>
               </label>
+              <label>
+                Drawing layer
+                <div className="toolbar">
+                  <button
+                    className="secondary outline"
+                    onClick={() => updateWing({ ...selected, zOrder: (selected.zOrder ?? 0) - 1 })}
+                    title="Paint this block underneath overlapping blocks"
+                  >
+                    ▼ Send back
+                  </button>
+                  <button
+                    className="secondary outline"
+                    onClick={() => updateWing({ ...selected, zOrder: (selected.zOrder ?? 0) + 1 })}
+                    title="Paint this block on top of overlapping blocks"
+                  >
+                    ▲ Bring forward
+                  </button>
+                  <small className="muted">layer {selected.zOrder ?? 0}</small>
+                </div>
+                <small className="muted">
+                  When blocks overlap in a view (a balcony hiding a chimney, say), raise or lower a block to choose which draws on top. Layer 0 is the
+                  normal depth order.
+                </small>
+              </label>
+              <div className="two-col">
+                <label>
+                  Ground level (m)
+                  <input
+                    type="number"
+                    step="0.1"
+                    value={selected.groundOffsetM ?? 0}
+                    onChange={(e) => updateWing({ ...selected, groundOffsetM: Number(e.target.value) || undefined })}
+                    title="This block's ground level relative to the site datum — for stepped or sloping sites. Elevations draw a baseline per block and quoted heights include it."
+                  />
+                </label>
+                <label>
+                  Storeys
+                  <select
+                    value={selected.storeys ?? ""}
+                    onChange={(e) => updateWing({ ...selected, storeys: e.target.value === "" ? undefined : Number(e.target.value) })}
+                    title="Drives the floor plan pages. Auto guesses from the eaves height (two storeys needs about 4.4 m of wall)."
+                  >
+                    <option value="">Auto</option>
+                    <option value={1}>1</option>
+                    <option value={2}>2</option>
+                    <option value={3}>3</option>
+                  </select>
+                </label>
+              </div>
+              {Array.from({ length: selected.storeys ?? (selected.eaveHeightM >= 4.4 ? 2 : 1) }, (_, level) => (
+                <label key={level}>
+                  {["Ground floor", "First floor", "Second floor"][level] ?? `Floor ${level}`} rooms
+                  <input
+                    value={selected.roomLabels?.[level] ?? ""}
+                    placeholder="e.g. Kitchen, Living room"
+                    onChange={(e) => {
+                      const roomLabels = [...(selected.roomLabels ?? [])];
+                      roomLabels[level] = e.target.value;
+                      updateWing({ ...selected, roomLabels: roomLabels.some((r) => r?.trim()) ? roomLabels : undefined });
+                    }}
+                    title="Comma-separated room names, printed on the floor plan pages"
+                  />
+                </label>
+              ))}
+              <label>
+                <input
+                  type="checkbox"
+                  role="switch"
+                  checked={!!selected.isContext}
+                  onChange={(e) => updateWing({ ...selected, isContext: e.target.checked || undefined })}
+                  title="A neighbouring building (semi/terrace) drawn grey for context — excluded from materials, heights and the schedule"
+                />{" "}
+                Neighbouring building (context only)
+              </label>
+              {!selected.isContext && (
+                <>
               {variant === "proposed" && (
                 <label>
                   <input
@@ -532,6 +661,17 @@ export function RoofComposerStep({ wings, proposedWings, materials, boundary, bo
                   />
                 </div>
               </label>
+              )}
+              <label>
+                Wall material (this block)
+                <input
+                  value={selected.wallMaterial ?? ""}
+                  placeholder="e.g. Red stock brick"
+                  onChange={(e) => updateWing({ ...selected, wallMaterial: e.target.value || undefined })}
+                  title="Printed in the Schedule of Materials — councils validate materials in words"
+                />
+              </label>
+                </>
               )}
               <div className="toolbar" style={{ marginTop: 8 }}>
                 <button className="secondary" onClick={prefillHeights} title="Sets eaves and pitch from OS height data for the building inside your red line">
@@ -631,6 +771,23 @@ export function RoofComposerStep({ wings, proposedWings, materials, boundary, bo
                   </label>
                   {selected.chimney && (
                     <>
+                      {selected.roofType === "gable" && (
+                        <label>
+                          Position
+                          <select
+                            value={selected.chimney.position ?? "ridge"}
+                            onChange={(e) =>
+                              updateWing({ ...selected, chimney: { ...selected.chimney!, position: e.target.value as NonNullable<Wing["chimney"]>["position"] } })
+                            }
+                            title="On the ridge, or an external stack rising up a gable-end wall from the ground"
+                          >
+                            <option value="ridge">On the ridge</option>
+                            <option value="end-left">{sideLabels.left} gable end (external)</option>
+                            <option value="end-right">{sideLabels.right} gable end (external)</option>
+                          </select>
+                        </label>
+                      )}
+                      {(selected.chimney.position ?? "ridge") === "ridge" && (
                       <label>
                         Position along ridge (m)
                         <input
@@ -640,6 +797,7 @@ export function RoofComposerStep({ wings, proposedWings, materials, boundary, bo
                           onChange={(e) => updateWing({ ...selected, chimney: { ...selected.chimney!, offsetM: Number(e.target.value) } })}
                         />
                       </label>
+                      )}
                       <div className="two-col">
                         <label>
                           Along ridge (m)
@@ -663,6 +821,85 @@ export function RoofComposerStep({ wings, proposedWings, materials, boundary, bo
                       <small className="muted">Or drag the chimney on the top-down plan; the blue corner resizes it.</small>
                     </>
                   )}
+                </details>
+              )}
+
+              {(selected.roofType === "gable" || selected.roofType === "mono-pitch") && (
+                <details className="panel">
+                  <summary>
+                    Rooflights
+                    {(selected.rooflights?.length ?? 0) > 0 ? ` (${selected.rooflights!.length})` : ""}
+                  </summary>
+                  <div className="toolbar">
+                    <button
+                      className="secondary outline"
+                      onClick={() => {
+                        const rl: Rooflight = {
+                          id: crypto.randomUUID(),
+                          plane: "front",
+                          offsetM: Math.max(0.5, selected.widthM / 2 - 0.4),
+                          upSlopeM: 1,
+                          widthM: 0.78,
+                          lengthM: 1.4,
+                        };
+                        updateWing({ ...selected, rooflights: [...(selected.rooflights ?? []), rl] });
+                      }}
+                      title="A rooflight lying in the roof slope — shown on the roof plan and elevations"
+                    >
+                      + Rooflight
+                    </button>
+                  </div>
+                  {(selected.rooflights ?? []).map((rl) => {
+                    const patchRl = (patch: Partial<Rooflight>) =>
+                      updateWing({ ...selected, rooflights: (selected.rooflights ?? []).map((r) => (r.id === rl.id ? { ...r, ...patch } : r)) });
+                    return (
+                      <details key={rl.id} className="panel opening-row" open>
+                        <summary>Rooflight · {selected.roofType === "gable" ? `${rl.plane === "front" ? sideLabels.front : sideLabels.back} slope` : "roof slope"}</summary>
+                        <div className="opening-head">
+                          {selected.roofType === "gable" ? (
+                            <select value={rl.plane} onChange={(e) => patchRl({ plane: e.target.value as Rooflight["plane"] })} aria-label="Roof slope">
+                              <option value="front">{sideLabels.front} slope</option>
+                              <option value="back">{sideLabels.back} slope</option>
+                            </select>
+                          ) : (
+                            <span />
+                          )}
+                          <button
+                            className="secondary outline"
+                            onClick={() => updateWing({ ...selected, rooflights: (selected.rooflights ?? []).filter((r) => r.id !== rl.id) })}
+                            aria-label="Remove rooflight"
+                          >
+                            ×
+                          </button>
+                        </div>
+                        <div className="two-col">
+                          <label>
+                            From left (m)
+                            <input type="number" step="0.1" value={rl.offsetM} onChange={(e) => patchRl({ offsetM: Number(e.target.value) })} />
+                          </label>
+                          <label>
+                            Up slope (m)
+                            <input
+                              type="number"
+                              step="0.1"
+                              value={rl.upSlopeM}
+                              onChange={(e) => patchRl({ upSlopeM: Number(e.target.value) })}
+                              title="Distance from the eave to the rooflight's lower edge, measured along the slope"
+                            />
+                          </label>
+                          <label>
+                            Width (m)
+                            <input type="number" step="0.1" value={rl.widthM} onChange={(e) => patchRl({ widthM: Number(e.target.value) })} />
+                          </label>
+                          <label>
+                            Length (m)
+                            <input type="number" step="0.1" value={rl.lengthM} onChange={(e) => patchRl({ lengthM: Number(e.target.value) })} title="Size up the slope" />
+                          </label>
+                        </div>
+                      </details>
+                    );
+                  })}
+                  <small className="muted">Hip roofs can't take rooflights yet — the hip planes need in-plane clamping first.</small>
                 </details>
               )}
             </>
@@ -697,7 +934,7 @@ export function RoofComposerStep({ wings, proposedWings, materials, boundary, bo
                 snap={snap}
                 label={
                   mainView === "3d"
-                    ? `Pseudo-3D view (${variant} — ${activeMaterial}) — click a view below to edit an elevation`
+                    ? `Pseudo-3D placement aid (${variant} — ${activeMaterial}) — indicative only, never in the PDF; click a view below to edit an elevation`
                     : `${dirLabel(mainView)} elevation (${variant} — ${activeMaterial}) — editing`
                 }
                 roofColor={activeColor}
@@ -723,7 +960,7 @@ export function RoofComposerStep({ wings, proposedWings, materials, boundary, bo
             onClick={() => setMainView("3d")}
             onKeyDown={(e) => e.key === "Enter" && setMainView("3d")}
           >
-            <ObliquePreview wings={activeWings} label="Pseudo-3D" height={130} roofColor={activeColor} wingColors={wingColors} />
+            <ObliquePreview wings={activeWings} label="Pseudo-3D (aid only — not in PDF)" height={130} roofColor={activeColor} wingColors={wingColors} />
           </div>
           {(["S", "N", "E", "W"] as const).map((dir) => (
             <div

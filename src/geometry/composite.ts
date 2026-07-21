@@ -13,7 +13,7 @@
 import type { Wing } from "../data/types";
 import type { Point, RoofPlanGeometry } from "./roof";
 import { computeRoofPlan } from "./roof";
-import { placeWingFaces, faceNormal, faceCentroid, wingPlanSize, wingRotation, rotateLocalPoint, CHIMNEY_ALONG_M, CHIMNEY_ACROSS_M } from "./faces3d";
+import { placeWingFaces, faceNormal, faceCentroid, wingPlanSize, wingRotation, rotateLocalPoint, rooflightRect, CHIMNEY_ALONG_M, CHIMNEY_ACROSS_M } from "./faces3d";
 import type { Face3D, Vec3 } from "./faces3d";
 
 export type Direction = "N" | "E" | "S" | "W";
@@ -24,6 +24,8 @@ export interface ScenePolygon {
   wingId: string;
   openingId?: string;
   openingType?: Face3D["openingType"];
+  /** From a neighbouring building shown for context only — render muted */
+  context?: boolean;
 }
 
 export interface Scene2D {
@@ -44,6 +46,10 @@ export interface PlacedPlan {
   slopeArrow: [Point, Point] | null;
   /** Chimney stack footprint, when the wing has one */
   chimney?: Point[];
+  /** Rooflight footprints on the roof planes */
+  rooflights: Point[][];
+  /** Neighbouring building shown for context only — render muted */
+  context?: boolean;
 }
 
 export interface PlanScene {
@@ -59,13 +65,23 @@ function transformPlanPoint(p: Point, wing: Wing): Point {
   return { x: r.x + wing.x, y: r.y + wing.y };
 }
 
-/** Chimney footprint in the wing's local frame (also used by the plan editor). */
+/** Chimney footprint in the wing's local frame (also used by the plan editor).
+ *  Note the half-sizes swap for end stacks: `alongM` runs along the wall (y)
+ *  and `acrossM` projects out from it (x). */
 export function chimneyLocalRect(wing: Wing): { cx: number; cy: number; a: number; b: number } | undefined {
   if (!wing.chimney || wing.roofType === "mono-pitch" || wing.roofType === "flat") return undefined;
   const a = (wing.chimney.alongM ?? CHIMNEY_ALONG_M) / 2;
   const b = (wing.chimney.acrossM ?? CHIMNEY_ACROSS_M) / 2;
+  // sits on the true ridge, which is off-centre for asymmetric gables
+  const plan = computeRoofPlan(wing);
+  const cy = plan.ridgeLine ? plan.ridgeLine[0].y : wing.depthM / 2;
+  const position = wing.chimney.position ?? "ridge";
+  if (position !== "ridge" && wing.roofType === "gable") {
+    const cx = position === "end-left" ? -b : wing.widthM + b;
+    return { cx, cy, a: b, b: a }; // out-from-wall × along-wall
+  }
   const cx = Math.min(Math.max(wing.chimney.offsetM, a + 0.1), wing.widthM - a - 0.1);
-  return { cx, cy: wing.depthM / 2, a, b };
+  return { cx, cy, a, b };
 }
 
 function chimneyPlanRect(wing: Wing): Point[] | undefined {
@@ -89,11 +105,18 @@ function transformPlanGeometry(plan: RoofPlanGeometry, wing: Wing): PlacedPlan {
     hipLines: plan.hipLines.map(([a, b]) => [t(a), t(b)] as [Point, Point]),
     slopeArrow: plan.slopeArrow ? [t(plan.slopeArrow[0]), t(plan.slopeArrow[1])] : null,
     chimney: chimneyPlanRect(wing)?.map(t),
+    rooflights: (wing.rooflights ?? [])
+      .map((rl) => rooflightRect(wing, rl))
+      .filter((r): r is NonNullable<typeof r> => !!r)
+      .map((rect) => rect.map(([x, y]) => t({ x, y }))),
+    context: wing.isContext,
   };
 }
 
 export function planScene(wings: Wing[]): PlanScene {
-  const placed = wings.map((w) => transformPlanGeometry(computeRoofPlan(w), w));
+  // honour the manual layer order so overlapping outlines stack predictably
+  const ordered = [...wings].sort((a, b) => (a.zOrder ?? 0) - (b.zOrder ?? 0));
+  const placed = ordered.map((w) => transformPlanGeometry(computeRoofPlan(w), w));
   const allPts = placed.flatMap((p) => p.outline);
   const minX = Math.min(...allPts.map((p) => p.x));
   const minY = Math.min(...allPts.map((p) => p.y));
@@ -109,6 +132,8 @@ export function planScene(wings: Wing[]): PlanScene {
       hipLines: p.hipLines.map(([a, b]) => [shift(a), shift(b)] as [Point, Point]),
       slopeArrow: p.slopeArrow ? [shift(p.slopeArrow[0]), shift(p.slopeArrow[1])] : null,
       chimney: p.chimney?.map(shift),
+      rooflights: p.rooflights.map((r) => r.map(shift)),
+      context: p.context,
     })),
     minX,
     minY,
@@ -119,10 +144,13 @@ export function planScene(wings: Wing[]): PlanScene {
 
 interface TaggedFace extends Face3D {
   wingId: string;
+  /** Manual layer override from the wing (higher = painted on top) */
+  zOrder: number;
+  context?: boolean;
 }
 
 function allFaces(wings: Wing[]): TaggedFace[] {
-  return wings.flatMap((w) => placeWingFaces(w).map((f) => ({ ...f, wingId: w.id })));
+  return wings.flatMap((w) => placeWingFaces(w).map((f) => ({ ...f, wingId: w.id, zOrder: w.zOrder ?? 0, context: w.isContext })));
 }
 
 function dot(a: Vec3, b: Vec3): number {
@@ -131,9 +159,12 @@ function dot(a: Vec3, b: Vec3): number {
 
 function buildScene(faces: TaggedFace[], toViewer: Vec3, project: (p: Vec3) => Point, depth: (c: Vec3) => number): Scene2D {
   const visible = faces.filter((f) => dot(faceNormal(f.pts), toViewer) > 1e-9);
-  // painter: far faces first
-  visible.sort((a, b) => depth(faceCentroid(b.pts)) - depth(faceCentroid(a.pts)));
-  const polygons = visible.map((f) => ({ kind: f.kind, wingId: f.wingId, openingId: f.openingId, openingType: f.openingType, points: f.pts.map(project) }));
+  // painter: manual layers first, then far faces before near ones within a
+  // layer. Openings sort by their wall's anchor; equal depths keep build
+  // order (sort is stable), which puts openings after their wall.
+  const depthOf = new Map(visible.map((f) => [f, depth(f.depthAnchor ?? faceCentroid(f.pts))]));
+  visible.sort((a, b) => a.zOrder - b.zOrder || depthOf.get(b)! - depthOf.get(a)!);
+  const polygons = visible.map((f) => ({ kind: f.kind, wingId: f.wingId, openingId: f.openingId, openingType: f.openingType, context: f.context, points: f.pts.map(project) }));
   const allPts = polygons.flatMap((p) => p.points);
   if (allPts.length === 0) return { polygons: [], widthM: 0, heightM: 0, origin: { x: 0, y: 0 } };
   const minX = Math.min(...allPts.map((p) => p.x));
@@ -186,6 +217,46 @@ export function obliqueScene(wings: Wing[]): Scene2D {
     ([x, y, z]) => ({ x: x + KX * y, y: z + KY * y }),
     (c) => c[1],
   );
+}
+
+/** Headline heights for a wing set: tallest ridge (overall building height,
+ *  chimneys excluded) and highest eaves, both relative to the case datum
+ *  (per-block ground offsets included). Context-only neighbour blocks are
+ *  excluded — they aren't part of the application. */
+export function buildingHeights(wings: Wing[]): { maxRidgeM: number; maxEaveM: number } {
+  const own = wings.filter((w) => !w.isContext);
+  if (own.length === 0) return { maxRidgeM: 0, maxEaveM: 0 };
+  return {
+    maxRidgeM: Math.max(...own.map((w) => computeRoofPlan(w).ridgeHeightM + (w.groundOffsetM ?? 0))),
+    maxEaveM: Math.max(...own.map((w) => w.eaveHeightM + (w.groundOffsetM ?? 0))),
+  };
+}
+
+/** Ground-level segments under each wing for one elevation view, in the same
+ *  normalised scene space as `elevationScene(wings, dir)` (pass its origin).
+ *  With no ground offsets this is one flat line; on stepped sites each block
+ *  gets a baseline at its own level. */
+export function groundSegments(wings: Wing[], dir: Direction, origin: Point): { from: Point; to: Point }[] {
+  const xOf: Record<Direction, (x: number, y: number) => number> = {
+    S: (x) => x,
+    N: (x) => -x,
+    E: (_x, y) => y,
+    W: (_x, y) => -y,
+  };
+  return wings.map((w) => {
+    const { w: pw, d: pd } = wingPlanSize(w);
+    const corners = [
+      [w.x, w.y],
+      [w.x + pw, w.y],
+      [w.x, w.y + pd],
+      [w.x + pw, w.y + pd],
+    ].map(([x, y]) => xOf[dir](x, y));
+    const g = (w.groundOffsetM ?? 0) - origin.y;
+    return {
+      from: { x: Math.min(...corners) - origin.x, y: g },
+      to: { x: Math.max(...corners) - origin.x, y: g },
+    };
+  });
 }
 
 /** Overall plan-grid bounding box of the wings (unshifted plan coordinates). */
