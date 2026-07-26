@@ -7,13 +7,19 @@ enough architectural detail to plan expansion and automation. Companion doc:
 ## What it does today
 
 A static SPA (Vite + React + TS + PicoCSS, no backend) that produces the full
-drawing set a UK householder planning application needs for a like-for-like
-roof material change: Location Plan (1:1250/1:2500 on OS mapping with a
-red-line boundary), Existing/Proposed Roof Plans, and four Existing/Proposed
-Elevations at 1:100 — each with a scale bar that is correct by construction —
-bundled into one client-side PDF for the Planning Portal.
+drawing set a UK householder planning application needs — extensions, loft
+conversions and dormers, outbuildings, re-roofs and other external
+alterations: Location Plan (1:1250/1:2500 on OS mapping with a red-line
+boundary), Block Plan, Existing/Proposed Roof Plans, outline Floor Plans, and
+four Existing/Proposed Elevations at 1:100 — each with a scale bar that is
+correct by construction — plus a Schedule of Materials and a generated
+Planning Statement, bundled into one client-side PDF for the Planning Portal.
 
-Flow: **case list → 3-step wizard** (Location Plan → Roof & Elevations →
+Each case carries a `caseType`; `data/proposal.ts` turns that plus the real
+existing↔proposed difference into the statement and schedule wording, so the
+document set never assumes what kind of job it is describing.
+
+Flow: **case list → 3-step wizard** (Location Plan → Building & Elevations →
 Download). Postcode search centres the map and doubles as the case's address.
 The site is password-gated by a Netlify edge function with an HMAC cookie
 (`netlify/edge-functions/gate.ts`), styled as an "Auto-Planning UK" sign-in page.
@@ -89,9 +95,12 @@ Ordered roughly by leverage-per-effort:
    1:200/1:500, a Design & Access-style cover statement (template text +
    materials), and application form fields — most conservation-area re-roof
    applications need exactly these.
-6. **Beyond re-roofs.** `proposedWings` already diverges from existing —
-   extensions/dormers work today at block level. Roadmap items 1–3 close the
-   validity gap for those richer applications.
+6. **Beyond re-roofs.** Done at the framing level (Jul 2026): `caseType` +
+   `data/proposal.ts` word every case honestly, and the UI is no longer
+   roof-centric. `proposedWings` diverges from existing, so
+   extensions/dormers/outbuildings work today at block level. Roadmap items
+   3–5 close the remaining *geometry* gap for those richer applications
+   (valleys at block junctions, angled wings, more roof forms).
 
 ## Constraints to respect when expanding
 

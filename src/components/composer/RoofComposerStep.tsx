@@ -357,7 +357,7 @@ export function RoofComposerStep({ wings, proposedWings, materials, boundary, bo
           </button>
         )}
         <small className="muted">
-          Editing the <strong>{variant}</strong> house{variant === "proposed" ? " — change blocks here for extensions/dormers; leave as-is for a pure material change" : ""}
+          Editing the <strong>{variant}</strong> building{variant === "proposed" ? " — add or reshape blocks for extensions, dormers and outbuildings; leave as-is if only materials change" : ""}
         </small>
       </div>
       {confirmDeleteBlock && selected && (
@@ -948,8 +948,9 @@ export function RoofComposerStep({ wings, proposedWings, materials, boundary, bo
             </div>
           )}
           <small className="muted" style={{ display: "block", marginTop: 12 }}>
-        Each block owns its roof covering — select a block and set <em>Roof material</em> in its panel. On the proposed house, change each re-roofed
-        block's covering (or tick <em>covering unchanged</em>); the drawings and schedule follow the blocks.
+        Each block owns its own materials — select a block and set <em>Roof material</em> and <em>Wall material</em> in its panel. On the proposed
+        building, change the covering only on blocks that are actually being re-covered (or tick <em>covering unchanged</em>); the drawings and
+        schedule follow the blocks.
       </small>
 
       {activeWings.length > 0 && (

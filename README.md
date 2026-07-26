@@ -1,11 +1,13 @@
 # Auto-Planning UK (repo: roofplan)
 
 Generates the drawing set a UK householder planning application needs —
-Location Plan with red-line boundary, Existing/Proposed Roof Plans, four
-Existing/Proposed Elevations and a Schedule of Materials — as a single
-scaled, annotated PDF bundle ready for the Planning Portal. Built for
-like-for-like roof material changes (e.g. Kent peg tile → grey slate), and
-the proposed drawings can carry their own geometry too (extensions, dormers).
+Location Plan with red-line boundary, Block Plan, Existing/Proposed Roof
+Plans, outline Floor Plans, four Existing/Proposed Elevations, a Schedule of
+Materials and a generated Planning Statement — as a single scaled, annotated
+PDF bundle ready for the Planning Portal. Covers extensions, loft conversions
+and dormers, outbuildings, re-roofs and other external alterations: each case
+carries a **project type** (`caseType`) that, together with the actual
+existing↔proposed difference, words the statement and schedule.
 
 **Private tool — not open source.** Built by
 [James Moores](https://www.linkedin.com/in/jamesmoores/).
@@ -30,8 +32,8 @@ Fill in `.env.local`:
   magnified — crisp vector lines with generalised building outlines, plus an
   amber footer pill explaining the trade-off. Upgrade the project to the
   **Premium plan** (first £1,000/month free) for full-detail 1:1250 mapping.
-  Without any key the Location Plan step is disabled; the Roof & Elevations
-  step and PDF export still work.
+  Without any key the Location Plan step is disabled; the Building &
+  Elevations step and PDF export still work.
 - `GATE_PASSWORD` — the password required to enter the deployed site
   (checked by `netlify/edge-functions/gate.ts`). Not used in local `vite
   dev`, only relevant once deployed to Netlify. `robots.txt`/`llms.txt` stay
@@ -47,16 +49,23 @@ npm run lint   # oxlint
 
 ## How it works
 
+Creating a case first asks **what the application is for** — the project type
+(re-roof / extension / loft conversion or dormer / outbuilding / other), which
+words the generated Planning Statement and schedule. It's skippable and
+editable later via "Edit details"; skip it and the documents are written from
+the existing↔proposed difference alone. Then the 3-step wizard:
+
 1. **Location Plan** — search a postcode (it seeds the case address), draw a
    red-line boundary around the whole plot on the OS basemap (drag points to
    adjust, Ctrl+Z to step back), then capture a true-scale 1:1250 or 1:2500
    snapshot.
-2. **Roof & Elevations** — compose the house from rectangular blocks
+2. **Building & Elevations** — compose the building from rectangular blocks
    ("wings") on a snapping plan grid, with the site boundary from step 1
    drawn underneath as a tracing guide (rotatable as a display aid). Toggle
    between **Existing** and **Proposed**: proposed starts as a copy of
-   existing (a pure material change), or edit its blocks independently for
-   extensions and dormers. Pick gable/hip/lean-to/flat from the palette,
+   existing (leave it alone when only materials change), or edit its blocks
+   independently for extensions, dormers and outbuildings. Pick
+   gable/hip/lean-to/flat from the palette,
    drag/resize/rotate (quarter turns) on the canvas, set pitch and eaves per
    block (or prefill from OS building-height data where confidence is
    High/Moderate), and place blocks precisely with numeric X/Y inputs. Add
@@ -75,12 +84,19 @@ npm run lint   # oxlint
    tag) and a real-world-accurate scale bar (1:100, falling back to an honest
    1:200 when the drawing wouldn't fit). The Location Plan overlays the
    boundary on the captured basemap at true scale with the OS copyright line;
-   unchanged proposed elevations are annotated as such; a Schedule of
-   Materials page closes the set.
+   a Block Plan carries boundary clearance dimensions; outline Floor Plans
+   join the set for extension-type cases; and a Schedule of Materials plus a
+   generated Planning Statement close it. Both of those last two are worded
+   from the case's project type and the real existing↔proposed difference
+   (`src/data/proposal.ts`), so an extension or window job is never described
+   as a roof re-covering.
 
-There's an in-app **Guidance** page (header link) walking through red-line
-rules, scales, materials wording, submission routes (Planning Portal vs
-direct to the council) and the bat-survey/heritage-statement traps.
+There's an in-app **Guidance** page (header link) walking through the
+permitted-development limits per project type (extension depths, dormer
+volume allowances, outbuilding heights, when a re-roof needs consent),
+red-line rules, scales, materials wording, submission routes (Planning Portal
+vs direct to the council) and the Building Regs / Party Wall /
+bat-survey / heritage-statement traps.
 
 See `CLAUDE.md` for the architecture map, geometry conventions, hard-won
 gotchas (OS licensing/zoom quirks, MapLibre's 512px-tile zoom convention,
@@ -91,11 +107,14 @@ automation-ideas.md (auto-trace from OS footprints, LiDAR, photos).
 
 ## Planning-validity caveats
 
-The block model represents most houses fairly, and elevations now carry
-openings and chimneys — but block junctions don't draw true valley lines,
-elevations have no neighbouring context, and conservation officers are the
-pickiest audience. Check your council's local validation checklist before
-treating the output as submission-ready for complex houses.
+The block model represents most houses fairly — elevations carry openings,
+chimneys and rooflights, and neighbouring buildings can be added as grey
+context blocks. But blocks are rectangular and quarter-turn only (no angled
+wings or curved bays), junctions don't draw true valley lines, rooflights
+can't sit on hip planes, floor plans are outline-level (footprints + room
+labels, no internal walls), and conservation officers are the pickiest
+audience. Check your council's local validation checklist before treating the
+output as submission-ready for complex houses.
 
 ## Deploying to Netlify
 

@@ -1,0 +1,139 @@
+import type { CaseType, PlanningCase, Wing } from "./types";
+import { geometryUnchanged, wingChanges } from "./caseGeometry";
+
+/** The project types offered when a case is created, in the order shown.
+ *  `phrase` is the noun phrase the Planning Statement builds its opening
+ *  sentence around ("consent for …"). */
+export const CASE_TYPES: { value: CaseType; label: string; hint: string; phrase: string }[] = [
+  {
+    value: "re-roof",
+    label: "Roof covering replacement",
+    hint: "Re-roof / re-covering — geometry stays as existing",
+    phrase: "the replacement of the roof covering",
+  },
+  {
+    value: "extension",
+    label: "Extension",
+    hint: "Single or two-storey extension, porch, conservatory",
+    phrase: "an extension to the dwelling",
+  },
+  {
+    value: "loft-dormer",
+    label: "Loft conversion / dormer",
+    hint: "Roof alterations forming habitable loft space",
+    phrase: "a loft conversion with dormer windows",
+  },
+  {
+    value: "outbuilding",
+    label: "Outbuilding / garage",
+    hint: "Detached building within the curtilage",
+    phrase: "a detached outbuilding within the curtilage",
+  },
+  {
+    value: "other",
+    label: "Other external alterations",
+    hint: "Windows, cladding, render, rooflights, anything else",
+    phrase: "external alterations to the dwelling",
+  },
+];
+
+export function caseTypeLabel(caseType: CaseType | undefined): string | undefined {
+  return CASE_TYPES.find((t) => t.value === caseType)?.label;
+}
+
+const norm = (s: string | undefined) => (s ?? "").trim().toLowerCase();
+
+/** True when the roof covering actually differs between existing and proposed.
+ *  Blocks own their coverings, so this compares each proposed block against its
+ *  existing counterpart; with no diverged geometry it falls back to the
+ *  case-level labels. Never assume a covering change from geometry alone —
+ *  a window swap or a render change leaves geometry identical too. */
+export function coveringChanged(planningCase: PlanningCase): boolean {
+  const proposed = planningCase.proposedWings;
+  if (!proposed) return norm(planningCase.materials.existing) !== norm(planningCase.materials.proposed);
+  const existingById = new Map((planningCase.wings ?? []).map((w) => [w.id, w]));
+  const covering = (w: Wing, isProposed: boolean) =>
+    norm(w.material || (isProposed ? planningCase.materials.proposed : planningCase.materials.existing));
+  return proposed.some((w) => {
+    if (w.isContext || w.materialUnchanged) return false;
+    const prior = existingById.get(w.id);
+    // A brand-new block is reported as new geometry, not as a re-covering.
+    return prior ? covering(w, true) !== covering(prior, false) : false;
+  });
+}
+
+export interface ProposalSummary {
+  geometryChanged: boolean;
+  coveringChanges: boolean;
+  /** Sentences for the Planning Statement's "The proposal" section */
+  statement: string;
+  /** Annotation for the proposed elevations */
+  elevationNote: string;
+  /** Annotation for the proposed roof plan, when geometry is unchanged */
+  roofPlanNote: string | null;
+  /** Closing note under the Schedule of Materials */
+  scheduleNote: string;
+}
+
+/** Describes the proposal in words, from the stated project type plus what
+ *  actually differs between the existing and proposed models. The two are
+ *  belt-and-braces: the type gives the application its name, the diff keeps
+ *  the detail honest even when the type is unset or the user changed their
+ *  mind after picking it. */
+export function describeProposal(planningCase: PlanningCase): ProposalSummary {
+  const geometryChanged = !geometryUnchanged(planningCase);
+  const coveringChanges = coveringChanged(planningCase);
+  const changes = wingChanges(planningCase);
+  const proposedWings = (planningCase.proposedWings ?? planningCase.wings ?? []).filter((w) => !w.isContext);
+  const changed = proposedWings.filter((w) => changes.newIds.has(w.id) || changes.alteredIds.has(w.id));
+  const existingCovering = planningCase.materials.existing || "the existing covering";
+  const proposedCovering = planningCase.materials.proposed || "the proposed covering";
+
+  // The concrete works, drawn from the model rather than assumed from the type.
+  const works: string[] = [];
+  if (changed.length) {
+    works.push(
+      `alterations to ${changed.map((w) => `${w.name} (${changes.newIds.has(w.id) ? "new" : "altered"})`).join("; ")}`,
+    );
+  }
+  if (coveringChanges) {
+    works.push(`replacement of the roof covering from ${existingCovering.toLowerCase()} to ${proposedCovering.toLowerCase()}`);
+  }
+
+  const phrase = CASE_TYPES.find((t) => t.value === planningCase.caseType)?.phrase;
+  let statement: string;
+  if (phrase) {
+    statement = `The application seeks consent for ${phrase}${works.length ? `, comprising ${works.join(" and ")}` : ""}.`;
+  } else if (works.length) {
+    statement = `The application seeks consent for ${works.join(" and ")}.`;
+  } else {
+    statement = "The application seeks consent for the works shown on the proposed drawings.";
+  }
+  if (!geometryChanged) {
+    statement +=
+      " No alterations are proposed to the building's footprint, height, openings or any other external element.";
+  } else {
+    statement +=
+      " The extent of the works is shown on the existing and proposed drawings; unaltered elements of the house are retained as existing.";
+  }
+
+  const elevationNote = geometryChanged
+    ? "See existing drawings for the house as it stands"
+    : coveringChanges
+      ? "No external alterations proposed other than the change of roof covering"
+      : "No alterations proposed to the building's footprint, height or openings";
+
+  const roofPlanNote = geometryChanged
+    ? null
+    : coveringChanges
+      ? "Roof geometry unchanged — replacement of roof covering only"
+      : "Roof geometry unchanged";
+
+  const scheduleNote = geometryChanged
+    ? "Proposed geometry differs from existing — refer to the proposed roof plan, floor plans and elevations for the altered elements."
+    : coveringChanges
+      ? "The proposal is limited to the replacement of the roof covering. No alterations are proposed to the building's footprint, height, openings or any other external element."
+      : "No alterations are proposed to the building's footprint, height, openings or roof covering; the works are as scheduled above.";
+
+  return { geometryChanged, coveringChanges, statement, elevationNote, roofPlanNote, scheduleNote };
+}

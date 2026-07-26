@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { PDFDownloadLink } from "@react-pdf/renderer";
 import { repository } from "./data/localStorageRepository";
-import type { PlanningCase, Wing } from "./data/types";
+import type { CaseType, PlanningCase, Wing } from "./data/types";
+import { CASE_TYPES, caseTypeLabel } from "./data/proposal";
 import { LocationPlanStep } from "./components/LocationPlanStep";
 import { RoofComposerStep } from "./components/composer/RoofComposerStep";
 import { GuidePage } from "./components/GuidePage";
@@ -44,11 +45,13 @@ function newCase(): PlanningCase {
     updatedAt: now,
     boundary: [],
     wings: [{ id: crypto.randomUUID(), name: "Main house", x: 0, y: 0, widthM: 8, depthM: 6, roofType: "gable", pitchDegrees: 40, eaveHeightM: 5 }],
-    materials: { existing: "Kent peg tile", proposed: "Grey slate" },
+    // Proposed seeded identical to existing: the tool must not assume the
+    // covering is changing — that's only true for re-roof cases.
+    materials: { existing: "Concrete interlocking tile", proposed: "Concrete interlocking tile" },
   };
 }
 
-type Step = "list" | "location" | "roof" | "download";
+type Step = "list" | "location" | "model" | "download";
 
 function BrandMark({ size = 22 }: { size?: number }) {
   return (
@@ -172,7 +175,7 @@ function Shell({ onHome, onGuide, freePlan, user, onSignIn, onSignOut, children 
       <footer className="site-footer">
         <div className="inner">
           <span>
-            <strong>Auto-Planning UK</strong> — planning drawings for roof material changes.
+            <strong>Auto-Planning UK</strong> — drawings for UK householder planning applications.
             {freePlan && (
               <span className="pill-warn" title={FREE_PLAN_DETAIL}>
                 Free OS plan — generalised mapping
@@ -202,7 +205,27 @@ export default function App() {
   const [showAuth, setShowAuth] = useState(false);
   const [user, setUser] = useState<StubUser | null>(() => getUser());
   /** Draft for the "Edit details" modal; null = closed */
-  const [draft, setDraft] = useState<{ name: string; address: string; applicant: string; agent: string; joinery: string; rainwater: string } | null>(null);
+  const [draft, setDraft] = useState<{
+    caseType: CaseType | "";
+    name: string;
+    address: string;
+    applicant: string;
+    agent: string;
+    joinery: string;
+    rainwater: string;
+  } | null>(null);
+  /** True while the details modal is collecting a brand-new case's basics */
+  const [draftIsNew, setDraftIsNew] = useState(false);
+
+  const draftFor = (c: PlanningCase) => ({
+    caseType: c.caseType ?? ("" as const),
+    name: c.name ?? "",
+    address: c.address,
+    applicant: c.applicant ?? "",
+    agent: c.agent ?? "",
+    joinery: c.joineryMaterial ?? "",
+    rainwater: c.rainwaterMaterial ?? "",
+  });
 
   useEffect(() => {
     repository.listCases().then(setCases);
@@ -221,7 +244,7 @@ export default function App() {
     await refreshList();
   }
 
-  function openCase(c: PlanningCase) {
+  function openCase(c: PlanningCase, isNew = false) {
     // Planning pages are gated behind the (stubbed) account.
     if (!user) {
       setShowAuth(true);
@@ -229,6 +252,12 @@ export default function App() {
     }
     setActive(normaliseCase(c));
     setStep("location");
+    // A new case asks what it's for up front: the project type shapes the
+    // generated statement and schedule, so it's worth one question.
+    if (isNew) {
+      setDraft(draftFor(c));
+      setDraftIsNew(true);
+    }
   }
 
   async function removeCase(id: string) {
@@ -246,7 +275,7 @@ export default function App() {
       <div className="modal" role="dialog" aria-modal="true" aria-label="Confirm deletion" onClick={(e) => e.stopPropagation()}>
         <h3>Delete this case?</h3>
         <p>
-          <strong>{confirmDelete.name || confirmDelete.address || "(no postcode yet)"}</strong> and its boundary, captured map and roof model will be
+          <strong>{confirmDelete.name || confirmDelete.address || "(no postcode yet)"}</strong> and its boundary, captured map and building model will be
           permanently removed.
         </p>
         <div className="modal-actions">
@@ -312,12 +341,13 @@ export default function App() {
         <div className="hero">
           <h1>The drawing set, without the drawing.</h1>
           <p>
-            Location plan, roof plans and all four elevations — existing and proposed — at true scale, bundled as one
-            Planning Portal-ready PDF. Built for like-for-like roof material changes.
+            Location plan, block plan, floor plans, roof plans and all four elevations — existing and proposed — at true
+            scale, bundled as one Planning Portal-ready PDF. For extensions, loft conversions, outbuildings, re-roofs and
+            other external alterations.
           </p>
           <button
             className="pill"
-            onClick={() => openCase(newCase())}
+            onClick={() => openCase(newCase(), true)}
             data-tooltip={user ? "Saved in this browser — come back to it any time" : "Sign in to start — free while in preview"}
             data-placement="bottom"
           >
@@ -334,6 +364,7 @@ export default function App() {
                   <strong>{caseLabel(c)}</strong>
                   <br />
                   <small className="muted">
+                    {caseTypeLabel(c.caseType) ? <>{caseTypeLabel(c.caseType)} · </> : null}
                     {c.name && c.address ? <>{c.address} · </> : null}updated {new Date(c.updatedAt).toLocaleString()}
                   </small>
                 </div>
@@ -357,13 +388,19 @@ export default function App() {
               </div>
               <div className="step-card">
                 <span className="step-num">2</span>
-                <h3>Model the roof</h3>
-                <p>Place simple blocks over the site boundary — gable, hip or lean-to — and set pitch and eaves. Elevations draw themselves.</p>
+                <h3>Model the building</h3>
+                <p>
+                  Place simple blocks over the site boundary, add windows, doors and rooflights, then set pitch and
+                  eaves. Plans and elevations draw themselves.
+                </p>
               </div>
               <div className="step-card">
                 <span className="step-num">3</span>
                 <h3>Download the set</h3>
-                <p>One PDF: location plan, existing and proposed roof plans, and four elevations each way — every page with an accurate scale bar.</p>
+                <p>
+                  One PDF: location and block plans, existing and proposed roof plans, floor plans, four elevations each
+                  way, a schedule of materials and a planning statement — every drawing with an accurate scale bar.
+                </p>
               </div>
             </div>
           </section>
@@ -375,7 +412,7 @@ export default function App() {
 
   const steps: { key: Step; label: string }[] = [
     { key: "location", label: "1 · Location Plan" },
-    { key: "roof", label: "2 · Roof & Elevations" },
+    { key: "model", label: "2 · Building & Elevations" },
     { key: "download", label: "3 · Download" },
   ];
 
@@ -388,19 +425,14 @@ export default function App() {
       <div className="wizard-head">
         <h2>
           {active.name || active.address || "New case"}
+          {caseTypeLabel(active.caseType) && <span className="case-type-badge">{caseTypeLabel(active.caseType)}</span>}
           <button
             className="edit-details"
-            onClick={() =>
-              setDraft({
-                name: active.name ?? "",
-                address: active.address,
-                applicant: active.applicant ?? "",
-                agent: active.agent ?? "",
-                joinery: active.joineryMaterial ?? "",
-                rainwater: active.rainwaterMaterial ?? "",
-              })
-            }
-            data-tooltip="Case name, property address, applicant and schedule materials for the drawings"
+            onClick={() => {
+              setDraft(draftFor(active));
+              setDraftIsNew(false);
+            }}
+            data-tooltip="Project type, case name, property address, applicant and schedule materials for the drawings"
           >
             Edit details
           </button>
@@ -418,12 +450,49 @@ export default function App() {
       </div>
 
       {draft && (
-        <div className="modal-overlay" onClick={() => setDraft(null)}>
+        <div
+          className="modal-overlay"
+          onClick={() => {
+            setDraft(null);
+            setDraftIsNew(false);
+          }}
+        >
           <div className="modal" role="dialog" aria-modal="true" aria-label="Edit case details" onClick={(e) => e.stopPropagation()}>
-            <h3>Case details</h3>
+            <h3>{draftIsNew ? "What's this application for?" : "Case details"}</h3>
+            {draftIsNew && (
+              <p>
+                <small className="muted">Everything here is optional and editable later — the project type is the useful one.</small>
+              </p>
+            )}
+            <label>
+              Project type
+              <select
+                value={draft.caseType}
+                onChange={(e) => setDraft({ ...draft, caseType: e.target.value as CaseType | "" })}
+                autoFocus={draftIsNew}
+              >
+                <option value="">Not stated — describe from the drawings</option>
+                {CASE_TYPES.map((t) => (
+                  <option key={t.value} value={t.value}>
+                    {t.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <p>
+              <small className="muted">
+                {CASE_TYPES.find((t) => t.value === draft.caseType)?.hint ??
+                  "Names the application on the Planning Statement. Leave unset and the statement is written from what differs between your existing and proposed models."}
+              </small>
+            </p>
             <label>
               Case name
-              <input value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} placeholder="e.g. Mrs Smith — re-roof" autoFocus />
+              <input
+                value={draft.name}
+                onChange={(e) => setDraft({ ...draft, name: e.target.value })}
+                placeholder="e.g. Mrs Smith — rear extension"
+                autoFocus={!draftIsNew}
+              />
             </label>
             <label>
               Full property address
@@ -441,7 +510,7 @@ export default function App() {
               </label>
               <label>
                 Agent (optional)
-                <input value={draft.agent} onChange={(e) => setDraft({ ...draft, agent: e.target.value })} placeholder="e.g. Jones Roofing Ltd" />
+                <input value={draft.agent} onChange={(e) => setDraft({ ...draft, agent: e.target.value })} placeholder="e.g. Jones Building Design" />
               </label>
               <label>
                 Windows &amp; doors
@@ -458,13 +527,21 @@ export default function App() {
               </small>
             </p>
             <div className="modal-actions">
-              <button className="secondary outline" onClick={() => setDraft(null)}>
-                Cancel
+              <button
+                className="secondary outline"
+                onClick={() => {
+                  setDraft(null);
+                  setDraftIsNew(false);
+                }}
+              >
+                {draftIsNew ? "Skip for now" : "Cancel"}
               </button>
               <button
                 onClick={() => {
+                  setDraftIsNew(false);
                   persist({
                     ...active,
+                    caseType: draft.caseType || undefined,
                     name: draft.name.trim() || undefined,
                     address: draft.address.trim(),
                     applicant: draft.applicant.trim() || undefined,
@@ -510,11 +587,14 @@ export default function App() {
         </>
       )}
 
-      {step === "roof" && (
+      {step === "model" && (
         <>
           <div className="step-intro">
-            <h3>Roof &amp; Elevations</h3>
-            <p>Trace the house as blocks over the site boundary. For a pure material change, the proposed house stays identical — just the material differs.</p>
+            <h3>Building &amp; Elevations</h3>
+            <p>
+              Trace the building as blocks over the site boundary, then switch to <strong>Proposed</strong> and make the
+              changes you're applying for. Leave the proposed model as-is if nothing about the building's shape changes.
+            </p>
           </div>
           <RoofComposerStep
             wings={active.wings ?? []}
@@ -546,7 +626,7 @@ export default function App() {
               </li>
               <li className={hasBlocks ? undefined : "todo-item"}>
                 <span className={`tick ${hasBlocks ? "done" : "todo"}`}>✓</span>
-                House modelled{hasBlocks ? ` (${active.wings!.length} block${active.wings!.length === 1 ? "" : "s"})` : " — add at least one block on Roof & Elevations"}
+                Building modelled{hasBlocks ? ` (${active.wings!.length} block${active.wings!.length === 1 ? "" : "s"})` : " — add at least one block on Building & Elevations"}
               </li>
             </ul>
             {(hasBoundary || hasBlocks) && (
@@ -563,7 +643,8 @@ export default function App() {
             )}
             <br />
             <small className="muted">
-              One PDF with a page per drawing (Location Plan, Existing/Proposed Roof Plan, Existing/Proposed Elevations). Split into separate files before
+              One PDF with a page per drawing (Location Plan, Block Plan, Existing/Proposed Roof Plans, Elevations and
+              Floor Plans, plus a Schedule of Materials and Planning Statement). Split into separate files before
               uploading if your planning portal requires one document per drawing.
             </small>
           </article>

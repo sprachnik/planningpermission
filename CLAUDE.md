@@ -5,8 +5,11 @@ tool, not open source. Docs in `docs/`: `OVERVIEW.md` (architecture TLDR +
 expansion levers), `value-research.md` (commercial case),
 `automation-ideas.md` (auto-trace/photo/LiDAR ideation).
 
-Generates the drawing set a UK householder planning application needs
-(re-roofs, extensions, dormer/loft work): Location Plan (1:1250/1:2500 with
+Generates the drawing set a UK householder planning application needs.
+The product is **not roof-specific** — a case carries a `caseType`
+(re-roof / extension / loft-dormer / outbuilding / other) chosen when it is
+created, and the copy throughout is framed around planning applications
+generally. Output: Location Plan (1:1250/1:2500 with
 red + optional blue line), Block Plan (1:200/1:500 with boundary clearance
 dimensions), Existing/Proposed Roof Plans and four Existing/Proposed
 Elevations (1:100), outline Floor Plans (auto-included for extension-type
@@ -24,9 +27,12 @@ npm test         # vitest — geometry invariants + PDF smoke render
 ```
 
 Tests cover the pure layers: `src/geometry/composite.test.ts` (projection
-invariants, rotation/normals regressions, openings/chimney), `src/pdf/scale.test.ts`
-(scale maths) and `src/pdf/pdfBundle.test.tsx` (renders the real PDF in Node,
-asserts page count). UI verification is still done by driving the app
+invariants, rotation/normals regressions, openings/chimney),
+`src/geometry/compass.test.ts` + `siteplan.test.ts` (bearings, boundary
+clearances), `src/pdf/scale.test.ts` (scale maths), `src/pdf/pdfBundle.test.tsx`
+(renders the real PDF in Node, asserts page count) and
+`src/data/proposal.test.ts` (the generated statement/schedule wording — guards
+against re-asserting a roof re-covering for non-roof cases). UI verification is still done by driving the app
 headlessly: install `playwright` as a temporary devDependency, script the
 wizard (sign in via the stubbed auth → create case → place blocks → download
 PDF), screenshot each step, then uninstall. Check `console`/`pageerror`
@@ -52,7 +58,12 @@ password protection).
 
 ### Data
 
-- `src/data/types.ts` — `PlanningCase` is the unit of persistence. The house
+- `src/data/types.ts` — `PlanningCase` is the unit of persistence. It carries
+  an optional `caseType` (`CaseType`: re-roof / extension / loft-dormer /
+  outbuilding / other) naming the kind of application — undefined on legacy
+  cases and whenever the user skips the question, in which case
+  `data/proposal.ts` words the documents purely from the existing↔proposed
+  diff. The building
   is modelled as `wings: Wing[]`: axis-aligned rectangular blocks on a shared
   plan grid, each with its own roof type (gable/hip/mono-pitch/flat), pitch
   (gables take an optional `rearPitchDegrees` — the ridge moves off-centre so
@@ -87,6 +98,18 @@ password protection).
   the composer's compass overlay, the "(SSW)"-style wind suffixes on
   elevation/wall names (`geometry/compass.ts`) and the rotated PDF north
   arrow. The plan geometry itself stays axis-aligned.
+- `src/data/proposal.ts` — **how the application describes itself in words.**
+  `CASE_TYPES` (labels/hints/noun phrases for the project-type picker) and
+  `describeProposal()`, which produces the Planning Statement prose, the
+  proposed roof-plan/elevation annotations and the schedule note. It combines
+  the stated `caseType` with what *actually* differs between existing and
+  proposed — `coveringChanged()` compares per-block coverings, never
+  inferring a re-covering from geometry. This exists because the old code
+  keyed everything off `geometryUnchanged()` and so asserted "consent for the
+  replacement of the roof covering" for *any* unchanged-geometry case
+  (window swaps, render, solar). Never reintroduce that inference: unchanged
+  geometry means unchanged geometry, nothing more. Covered by
+  `proposal.test.ts`.
 - `src/data/repository.ts` + `localStorageRepository.ts` — the "database
   stub". All persistence is per-browser localStorage behind a small
   `Repository` interface; a real backend later means writing a second
@@ -150,12 +173,19 @@ Case list → 3-step wizard per case (shared `Shell` header/footer chrome):
 Location Plan (`LocationPlanStep`: MapLibre vector basemap, postcode search —
 the searched postcode is saved as the case's `address`, naming the case, PDF
 filename and title blocks — click-to-draw red-line boundary with drag-to-move
-points and undo, capture at chosen scale via canvas snapshot) → Roof & Elevations
-(`components/composer/`: existing/proposed toggle — proposed is seeded as
-a copy of existing on first open — palette + plan canvas with grid/snap/
-drag/resize, site-boundary underlay traced from step 2, pseudo-3D + four
-elevation previews tinted by the material swatch) → Download (client-side
-PDF via `@react-pdf/renderer`, keyed by `updatedAt`).
+points and undo, capture at chosen scale via canvas snapshot) → Building &
+Elevations (`Step` key `"model"`; the component is still named
+`RoofComposerStep` internally — `components/composer/`: existing/proposed
+toggle — proposed is seeded as a copy of existing on first open — palette +
+plan canvas with grid/snap/drag/resize, site-boundary underlay traced from
+step 2, pseudo-3D + four elevation previews tinted by the material swatch) →
+Download (client-side PDF via `@react-pdf/renderer`, keyed by `updatedAt`).
+
+Creating a case opens the "What's this application for?" modal (the details
+modal in `draftIsNew` mode) so `caseType` is captured up front; it's skippable
+and re-editable via "Edit details". New cases seed `materials.existing ===
+materials.proposed` deliberately — the tool must not assume the covering is
+changing.
 
 ## Gotchas / hard-won knowledge
 
@@ -226,11 +256,17 @@ PDF via `@react-pdf/renderer`, keyed by `updatedAt`).
    stepped elevation baselines, blue line on the location plan, external
    gable-end chimneys, NEW/ALTERED change labels on proposed drawings,
    applicant/agent title-block metadata, generated Planning Statement page.
-3. Photo tracing for elevations (scale from a known dimension).
-4. True valley/junction lines where blocks intersect (also unlocks honest
+3. ~~De-roof-centring pass (Jul 2026)~~ — DONE: the product is a general
+   householder planning tool, not a re-roof tool. `caseType` +
+   `data/proposal.ts`, wizard step 2 renamed Building & Elevations, project
+   type asked on case creation, Guide page covers extension/dormer/outbuilding
+   permitted-development limits, and the statement/schedule no longer infer a
+   roof re-covering from unchanged geometry.
+4. Photo tracing for elevations (scale from a known dimension).
+5. True valley/junction lines where blocks intersect (also unlocks honest
    dormers-as-blocks).
-5. Angled (non-quarter-turn) wings; more roof forms (half-hip, mansard);
+6. Angled (non-quarter-turn) wings; more roof forms (half-hip, mansard);
    rooflights on hip planes; dedicated site-section page.
-6. Netlify deploy + domain-restricted key end-to-end check.
-7. Auto-trace from OS NGD footprints / INSPIRE parcels / LiDAR — see
+7. Netlify deploy + domain-restricted key end-to-end check.
+8. Auto-trace from OS NGD footprints / INSPIRE parcels / LiDAR — see
    `docs/automation-ideas.md`.

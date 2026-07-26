@@ -1,28 +1,36 @@
 # Auto-Planning UK
 
 > Auto-Planning UK generates the drawing set a UK householder planning
-> application needs for a roof material change (for example Kent peg tile to
-> natural slate): a Location Plan at 1:1250 or 1:2500 on Ordnance Survey
-> mapping with a red-line site boundary, Existing and Proposed Roof Plans,
-> all four Existing and Proposed Elevations at 1:100 with scale bars, and a
-> Schedule of Materials — bundled as one Planning Portal-ready PDF.
+> application needs: a Location Plan at 1:1250 or 1:2500 on Ordnance Survey
+> mapping with a red-line site boundary, a Block Plan with boundary
+> clearances, Existing and Proposed Roof Plans, outline Floor Plans, all four
+> Existing and Proposed Elevations at 1:100 with scale bars, a Schedule of
+> Materials and a generated Planning Statement — bundled as one Planning
+> Portal-ready PDF.
 
 ## What it is for
 
-- Like-for-like re-roofs that need planning permission because the property
-  is in a conservation area, under an Article 4 direction, or otherwise has
-  restricted permitted development rights.
-- Simple block-level extensions and dormers (proposed geometry can diverge
-  from existing).
-- Users: householders, and jobbing roofers/builders preparing applications
-  for their customers.
+Householder applications of these types, chosen per case and used to word the
+generated Planning Statement and schedule:
+
+- Extensions — single or two-storey, porches, conservatories.
+- Loft conversions and dormers.
+- Outbuildings and detached garages.
+- Roof covering replacement (re-roofs) that need permission because the
+  property is in a conservation area, under an Article 4 direction, or
+  otherwise has restricted permitted development rights.
+- Other external alterations — windows, cladding, render, rooflights.
+- Users: householders, and the builders, roofers and small design practices
+  preparing applications for their customers.
 
 ## How it works
 
 1. Search the postcode; draw the red-line boundary around the whole plot on
    OS mapping; capture the location plan at a true print scale.
-2. Model the house as parametric roof blocks (gable/hip/mono-pitch, pitch,
-   eaves) — building heights can be prefilled from OS building-height data.
+2. Model the building as parametric blocks (gable/hip/mono-pitch/flat roofs,
+   pitch, eaves, windows, doors, rooflights, chimneys) — building heights can
+   be prefilled from OS building-height data. The proposed model starts as a
+   copy of the existing one and diverges only where the works do.
 3. Download one PDF with a page per drawing, each with an accurate scale
    bar, north arrow where required, drawing numbers and a materials schedule.
 

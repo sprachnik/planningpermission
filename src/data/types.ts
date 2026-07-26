@@ -1,5 +1,12 @@
 export type RoofType = "gable" | "hip" | "mono-pitch" | "flat";
 
+/** The kind of householder application a case is being prepared for. Drives
+ *  the generated Planning Statement, the schedule notes and the drawing
+ *  annotations — without it the wording is derived from what actually differs
+ *  between the existing and proposed models. Optional: cases saved before this
+ *  existed (and users who skip the question) fall back to that derivation. */
+export type CaseType = "re-roof" | "extension" | "loft-dormer" | "outbuilding" | "other";
+
 export interface BoundaryPoint {
   lng: number;
   lat: number;
@@ -130,6 +137,9 @@ export interface PlanningCase {
   id: string;
   /** Display name for the case; falls back to `address` in the UI */
   name?: string;
+  /** What kind of works this application is for. Undefined = not stated, and
+   *  the PDF describes the proposal from the existing/proposed difference. */
+  caseType?: CaseType;
   /** Full property address — printed in every drawing's title block. Seeded
    *  with the searched postcode until the user sets the real address. */
   address: string;

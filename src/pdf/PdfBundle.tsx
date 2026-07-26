@@ -11,6 +11,7 @@ import { CONTENT_WIDTH_MM, CONTENT_HEIGHT_MM, fitDrawingScale, PT_PER_MM, PAGE_W
 import { roofColorFor, lighten, openingFill, garagePanelLines, CONTEXT_WALL_FILL, CONTEXT_ROOF_FILL } from "../components/svgDraw";
 import { windSuffix } from "../geometry/compass";
 import { geometryUnchanged, wingChanges } from "../data/caseGeometry";
+import { describeProposal, caseTypeLabel } from "../data/proposal";
 
 const WALL_FILL = "#f2f2f2";
 const RED_LINE = "#e02424";
@@ -137,8 +138,9 @@ function RoofPlanPage({ planningCase, proposed, meta }: { planningCase: Planning
   const changeLabel = (wingId: string): string | null =>
     changes?.newIds.has(wingId) ? "NEW" : changes?.alteredIds.has(wingId) ? "ALTERED" : null;
   const notes = [materialsNote(planningCase, proposed)];
-  if (proposed && geometryUnchanged(planningCase)) {
-    notes.push("Roof geometry unchanged — replacement of roof covering only");
+  if (proposed) {
+    const note = describeProposal(planningCase).roofPlanNote;
+    if (note) notes.push(note);
   }
   if (wings.some((w) => w.isContext)) {
     notes.push("Grey blocks are neighbouring buildings, shown for context only");
@@ -271,16 +273,14 @@ function ElevationsPage({
     notes.push("Stepped baselines indicate ground levels relative to the site datum");
   }
   if (proposed) {
-    if (geometryUnchanged(planningCase)) {
-      notes.push("No external alterations proposed other than the change of roof covering");
-    } else {
+    if (!geometryUnchanged(planningCase)) {
       const changes = wingChanges(planningCase);
       const named = wings.filter((w) => changes.newIds.has(w.id) || changes.alteredIds.has(w.id));
       if (named.length > 0) {
         notes.push(`Alterations: ${named.map((w) => `${w.name} (${changes.newIds.has(w.id) ? "new" : "altered"})`).join("; ")}`);
       }
-      notes.push("See existing drawings for the house as it stands");
     }
+    notes.push(describeProposal(planningCase).elevationNote);
   } else {
     notes.push("Walls, windows and doors as existing");
   }
@@ -567,34 +567,31 @@ const statementStyles = StyleSheet.create({
   stamp: { position: "absolute", bottom: MARGIN_MM * PT_PER_MM + 6, left: (MARGIN_MM + 10) * PT_PER_MM, fontSize: 6.5, color: "#111" },
 });
 
-/** A short design/planning statement generated from the case — the covering
- *  narrative conservation officers expect alongside the drawings. */
+/** A short design/planning statement generated from the case — the narrative
+ *  officers expect alongside the drawings. What the proposal *is* comes from
+ *  the case's project type and the existing/proposed diff, never from an
+ *  assumption about the kind of job (see data/proposal.ts). */
 function StatementPage({ planningCase, meta }: { planningCase: PlanningCase; meta: PageMeta }) {
-  const unchanged = geometryUnchanged(planningCase);
-  const changes = wingChanges(planningCase);
+  const proposal = describeProposal(planningCase);
+  const unchanged = !proposal.geometryChanged;
   const proposedWings = wingsFor(planningCase, true).filter((w) => !w.isContext);
-  const changed = proposedWings.filter((w) => changes.newIds.has(w.id) || changes.alteredIds.has(w.id));
   const hExisting = buildingHeights(planningCase.wings ?? []);
   const hProposed = buildingHeights(wingsFor(planningCase, true));
   const existingCovering = planningCase.materials.existing || "the existing covering";
   const proposedCovering = planningCase.materials.proposed || "the proposed covering";
-
-  const proposalText = unchanged
-    ? `The application seeks consent for the replacement of the roof covering, from ${existingCovering.toLowerCase()} to ` +
-      `${proposedCovering.toLowerCase()}. No alterations are proposed to the building's footprint, height, openings or any other external element.`
-    : `The application seeks consent for external alterations to the dwelling` +
-      (changed.length ? `, comprising: ${changed.map((w) => `${w.name} (${changes.newIds.has(w.id) ? "new" : "altered"})`).join("; ")}` : "") +
-      `. The extent of the works is shown on the existing and proposed drawings; unaltered elements of the house are retained as existing.`;
+  const typeLabel = caseTypeLabel(planningCase.caseType);
 
   const scaleText = unchanged
     ? `The building height is unchanged at ${hExisting.maxRidgeM.toFixed(2)} m to the ridge.`
     : `The maximum building height is ${hExisting.maxRidgeM.toFixed(2)} m to the ridge as existing and ${hProposed.maxRidgeM.toFixed(2)} m as proposed.`;
 
   const sections: [string, string][] = [
-    ["The proposal", proposalText],
+    ["The proposal", proposal.statement],
     [
       "Materials",
-      `Roof covering: ${existingCovering} (existing); ${proposedCovering} (proposed). ` +
+      (proposal.coveringChanges
+        ? `Roof covering: ${existingCovering} (existing); ${proposedCovering} (proposed). `
+        : `Roof covering: ${existingCovering}, unchanged. `) +
         `Walls: ${[...new Set(proposedWings.map((w) => w.wallMaterial?.trim()).filter(Boolean))].join("; ") || "existing, unchanged"}. ` +
         `Windows and doors: ${planningCase.joineryMaterial?.trim() || "existing, unchanged"}. Rainwater goods: ${planningCase.rainwaterMaterial?.trim() || "existing, unchanged"}. ` +
         `Materials are scheduled in full on the Schedule of Materials sheet.`,
@@ -613,6 +610,7 @@ function StatementPage({ planningCase, meta }: { planningCase: PlanningCase; met
         <Text style={statementStyles.sub}>
           {meta.address}
           {meta.applicantLine ? ` — ${meta.applicantLine}` : ""}
+          {typeLabel ? ` — Householder application: ${typeLabel}` : ""}
         </Text>
         {sections.map(([head, body]) => (
           <View key={head}>
@@ -644,7 +642,8 @@ const scheduleStyles = StyleSheet.create({
 
 /** Schedule of materials — councils validate materials in words, not tints. */
 function SchedulePage({ planningCase, meta }: { planningCase: PlanningCase; meta: PageMeta }) {
-  const unchanged = geometryUnchanged(planningCase);
+  const proposal = describeProposal(planningCase);
+  const unchanged = !proposal.geometryChanged;
   const coveringCell = (proposed: boolean): string => {
     const wings = wingsFor(planningCase, proposed).filter((w) => !w.isContext);
     const base = (proposed ? planningCase.materials.proposed : planningCase.materials.existing) || "Not specified";
@@ -664,7 +663,10 @@ function SchedulePage({ planningCase, meta }: { planningCase: PlanningCase; meta
     if (labels.length > 1) return wings.map((w) => `${w.name}: ${w.wallMaterial?.trim() || "not specified"}`).join("; ");
     return proposed ? (unchanged ? "Unchanged" : "To match existing — see proposed drawings") : "Existing";
   };
-  const coveringChanges = coveringCell(false) !== coveringCell(true);
+  // Compare the coverings themselves, not the rendered cells: a block marked
+  // "covering unchanged" renders as "Kent peg tile (unchanged)" against a bare
+  // "Kent peg tile", so string-comparing the cells read as a change.
+  const coveringChanges = proposal.coveringChanges;
   const rows: [string, string, string][] = [
     ["Roof covering", coveringCell(false), coveringCell(true)],
     ["Maximum building height", heightCell(false), heightCell(true) === heightCell(false) ? "Unchanged" : heightCell(true)],
@@ -695,9 +697,7 @@ function SchedulePage({ planningCase, meta }: { planningCase: PlanningCase; meta
           </View>
         ))}
         <Text style={scheduleStyles.note}>
-          {unchanged
-            ? "The proposal is limited to the replacement of the roof covering. No alterations are proposed to the building's footprint, height, openings or any other external element."
-            : "Proposed geometry differs from existing — refer to the proposed roof plan and elevations for the altered elements."}
+          {proposal.scheduleNote}
           {coveringChanges ? " The existing roof covering will be stripped and disposed of appropriately; the replacement covering is as scheduled above." : ""}
         </Text>
       </View>
