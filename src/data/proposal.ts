@@ -56,6 +56,7 @@ export function caseTypeLabel(caseType: CaseType | undefined): string | undefine
 
 const norm = (s: string | undefined) => (s ?? "").trim().toLowerCase();
 
+
 /** True when the roof covering actually differs between existing and proposed.
  *  Blocks own their coverings, so this compares each proposed block against its
  *  existing counterpart; with no diverged geometry it falls back to the
@@ -114,9 +115,13 @@ export function describeProposal(planningCase: PlanningCase): ProposalSummary {
       `alterations to ${changed.map((w) => `${w.name} (${changes.newIds.has(w.id) ? "new" : "altered"})`).join("; ")}`,
     );
   }
-  if (coveringChanges) {
-    works.push(`replacement of the roof covering from ${existingCovering.toLowerCase()} to ${proposedCovering.toLowerCase()}`);
-  }
+  // Printed exactly as entered, matching the Schedule of Materials. These
+  // labels carry proper nouns and acronyms ("Kent peg tile", "Welsh slate",
+  // "EPDM"), and lower-casing them put "kent peg tile" in a document going to a
+  // council. No case rule distinguishes those from "Concrete tile" reliably, so
+  // don't try — a capitalised material name mid-sentence reads fine.
+  const coveringWork = `replacement of the roof covering from ${existingCovering} to ${proposedCovering}`;
+  if (coveringChanges) works.push(coveringWork);
 
   // A stated type only names the application when the model backs it up.
   const type = CASE_TYPES.find((t) => t.value === planningCase.caseType);
@@ -127,7 +132,17 @@ export function describeProposal(planningCase: PlanningCase): ProposalSummary {
 
   let statement: string;
   if (phrase) {
-    statement = `The application seeks consent for ${phrase}${works.length ? `, comprising ${works.join(" and ")}` : ""}.`;
+    // A re-roof's phrase *is* the covering change, so listing that change again
+    // as a component of itself read "consent for the replacement of the roof
+    // covering, comprising replacement of the roof covering from X to Y".
+    // Fold the detail into the headline and let anything else follow it.
+    const namesCovering = type!.requires === "covering" && coveringChanges;
+    const headline = namesCovering ? `the ${coveringWork}` : phrase;
+    const rest = namesCovering ? works.filter((w) => w !== coveringWork) : works;
+    const joined = rest.join(" and ");
+    statement = `The application seeks consent for ${headline}${
+      rest.length ? `${namesCovering ? ", together with " : ", comprising "}${joined}` : ""
+    }.`;
   } else if (works.length) {
     statement = `The application seeks consent for ${works.join(" and ")}.`;
   } else {

@@ -9,7 +9,7 @@ import { boundaryCentroid, toLocalMetres, boundaryBoundingBoxM } from "../geomet
 import { boundaryInPlanFrame, boundaryClearances } from "../geometry/siteplan";
 import { CONTENT_WIDTH_MM, CONTENT_HEIGHT_MM, fitDrawingScale, PT_PER_MM, PAGE_WIDTH_MM, PAGE_HEIGHT_MM, MARGIN_MM } from "./scale";
 import { ELEVATION_DIRS, GROUND_OVERHANG_M, FLOOR_FRAME_GAP_M, FLOOR_TITLE_H_M, wingsFor, effectiveStoreys, floorPlansLayout, elevationSetScale, floorPlanSetScale } from "./drawingScales";
-import { roofColorFor, lighten, openingFill, garagePanelLines, CONTEXT_WALL_FILL, CONTEXT_ROOF_FILL } from "../components/svgDraw";
+import { roofColorFor, colorForMaterial, variantRoofColor, lighten, openingFill, garagePanelLines, CONTEXT_WALL_FILL, CONTEXT_ROOF_FILL } from "../components/svgDraw";
 import { windSuffix } from "../geometry/compass";
 import { geometryUnchanged, wingChanges } from "../data/caseGeometry";
 import { describeProposal, caseTypeLabel, coveringChanged } from "../data/proposal";
@@ -33,13 +33,13 @@ function overridesApply(planningCase: PlanningCase, proposed: boolean): boolean 
   return !proposed || !!planningCase.proposedWings;
 }
 
-/** Which variant's default roof swatch to draw with. The defaults are peg tile
- *  (existing) and grey slate (proposed) — a re-roof assumption from when every
- *  case was a re-covering. Left alone, a case keeping its covering renders
- *  orange on the existing sheets and grey on the proposed ones, reading as a
- *  material change nobody applied for. Per-block `materialColor` still wins. */
+/** The roof swatch for a variant when no per-block override applies. Led by the
+ *  material *name* (see `colorForMaterial`) so the drawing can't contradict the
+ *  label the schedule prints; the raw variant defaults are peg tile (existing)
+ *  and grey slate (proposed), a re-roof assumption that would otherwise colour
+ *  an unchanged covering as though it had been replaced. */
 function roofSwatchFor(planningCase: PlanningCase, proposed: boolean): string {
-  return roofColorFor(planningCase.materials, proposed && coveringChanged(planningCase));
+  return variantRoofColor(planningCase.materials, proposed, coveringChanged(planningCase));
 }
 
 /** A wing's effective roof covering (label + swatch) for one variant, taking
@@ -47,15 +47,17 @@ function roofSwatchFor(planningCase: PlanningCase, proposed: boolean): string {
 function resolveWingMaterial(planningCase: PlanningCase, wing: Wing, proposed: boolean): { label: string; color: string } {
   if (proposed && wing.materialUnchanged) {
     const existing = (planningCase.wings ?? []).find((w) => w.id === wing.id);
+    const kept = existing?.material?.trim() || planningCase.materials.existing || "existing covering";
     return {
-      label: `${existing?.material?.trim() || planningCase.materials.existing || "existing covering"} (unchanged)`,
-      color: existing?.materialColor ?? roofColorFor(planningCase.materials, false),
+      label: `${kept} (unchanged)`,
+      color: existing?.materialColor ?? colorForMaterial(kept) ?? roofColorFor(planningCase.materials, false),
     };
   }
   const base = proposed ? planningCase.materials.proposed : planningCase.materials.existing;
+  const label = wing.material?.trim() || base || "not specified";
   return {
-    label: wing.material?.trim() || base || "not specified",
-    color: wing.materialColor ?? roofSwatchFor(planningCase, proposed),
+    label,
+    color: wing.materialColor ?? colorForMaterial(label) ?? roofSwatchFor(planningCase, proposed),
   };
 }
 

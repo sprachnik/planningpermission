@@ -5,7 +5,7 @@ import { boundaryCentroid, toLocalMetres } from "../../geometry/latlng";
 import { PlanCanvas } from "./PlanCanvas";
 import { SceneEditor, type EditorView } from "./ObliqueEditor";
 import { ElevationScenePreview, ObliquePreview, PlanScenePreview, RoofTypeThumbnail } from "../RoofPreviewSvg";
-import { roofColorFor } from "../svgDraw";
+import { colorForMaterial, variantRoofColor } from "../svgDraw";
 import { wingRotation, type QuarterTurn } from "../../geometry/faces3d";
 import { windSuffix } from "../../geometry/compass";
 import { computeRoofPlan, gableRidgeY } from "../../geometry/roof";
@@ -84,7 +84,10 @@ export function RoofComposerStep({ wings, proposedWings, materials, boundary, bo
   // Which wing set is being edited. Proposed is seeded as a copy of existing
   // the first time it's opened, so a pure material change never diverges.
   const activeWings = variant === "proposed" ? (proposedWings ?? wings) : wings;
-  const activeColor = roofColorFor(materials, variant === "proposed");
+  // Matches the PDF: the swatch follows the material *name* where we know it,
+  // so the preview never shows a colour the drawings would contradict.
+  const coveringDiffers = (materials.existing ?? "").trim().toLowerCase() !== (materials.proposed ?? "").trim().toLowerCase();
+  const activeColor = variantRoofColor(materials, variant === "proposed", coveringDiffers);
   const caseMaterial = (variant === "proposed" ? materials.proposed : materials.existing) || "material not set";
   // Label for the previews: the case default, or "mixed coverings" once any
   // block overrides it (or keeps its existing covering on the proposed house).
@@ -104,7 +107,8 @@ export function RoofComposerStep({ wings, proposedWings, materials, boundary, bo
     activeWings.flatMap((w): [string, string][] => {
       if (variant === "proposed" && w.materialUnchanged) {
         const existing = wings.find((e) => e.id === w.id);
-        return [[w.id, existing?.materialColor ?? roofColorFor(materials, false)]];
+        const kept = existing?.material?.trim() || materials.existing;
+        return [[w.id, existing?.materialColor ?? colorForMaterial(kept) ?? variantRoofColor(materials, false, coveringDiffers)]];
       }
       return w.materialColor ? [[w.id, w.materialColor]] : [];
     }),

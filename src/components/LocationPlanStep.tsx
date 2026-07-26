@@ -302,9 +302,24 @@ export function LocationPlanStep({ address, boundary, blueLine = [], mapCentre, 
       map.resize();
       map.jumpTo({ center: centre, zoom: targetZoom, bearing: 0 });
 
-      await new Promise<void>((resolve) => map.once("idle", () => resolve()));
+      // Capture the basemap ONLY. The PDF draws the red and blue lines itself,
+      // as vectors placed from the capture centre — leaving these layers on
+      // bakes a second, raster copy into the image, and the two land a fraction
+      // apart, so the Location Plan shows a doubled boundary (which reads as
+      // two site boundaries on a validation check).
+      const overlays = ["boundary-line", "boundary-points", "blueline-line", "blueline-points"];
+      const shown = overlays.filter((id) => map.getLayer(id));
+      shown.forEach((id) => map.setLayoutProperty(id, "visibility", "none"));
 
-      const dataUrl = map.getCanvas().toDataURL("image/png");
+      let dataUrl: string;
+      try {
+        await new Promise<void>((resolve) => map.once("idle", () => resolve()));
+        dataUrl = map.getCanvas().toDataURL("image/png");
+      } finally {
+        // Always put the overlays back, even if the snapshot threw — otherwise
+        // the user is left with an invisible boundary they can no longer edit.
+        shown.forEach((id) => map.setLayoutProperty(id, "visibility", "visible"));
+      }
 
       container.style.width = prevWidth;
       container.style.height = prevHeight;

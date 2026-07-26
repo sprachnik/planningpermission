@@ -73,8 +73,9 @@ describe("describeProposal", () => {
       caseWith({ caseType: "re-roof", materials: { existing: "Kent peg tile", proposed: "Welsh slate" } }),
     );
     expect(summary.statement).toContain("the replacement of the roof covering");
-    expect(summary.statement).toContain("kent peg tile");
-    expect(summary.statement).toContain("welsh slate");
+    // printed as entered, matching the schedule — never lower-cased
+    expect(summary.statement).toContain("Kent peg tile");
+    expect(summary.statement).toContain("Welsh slate");
     expect(summary.statement).toContain("No alterations are proposed to the building's footprint");
     expect(summary.roofPlanNote).toBe("Roof geometry unchanged — replacement of roof covering only");
   });
@@ -96,7 +97,7 @@ describe("describeProposal", () => {
     const summary = describeProposal(
       caseWith({ materials: { existing: "Kent peg tile", proposed: "Welsh slate" } }),
     );
-    expect(summary.statement).toContain("replacement of the roof covering from kent peg tile to welsh slate");
+    expect(summary.statement).toContain("replacement of the roof covering from Kent peg tile to Welsh slate");
   });
 
   it("stays honest when nothing at all differs", () => {

@@ -10,7 +10,7 @@ import { AuthPage } from "./components/AuthPage";
 import { PdfBundle } from "./pdf/PdfBundle";
 import { hasApiKey, hasPremiumTiles } from "./os/client";
 import { getUser, signOut, type StubUser } from "./auth";
-import { roofColorFor } from "./components/svgDraw";
+import { roofColorFor, colorForMaterial, variantRoofColor } from "./components/svgDraw";
 
 const FREE_PLAN_DETAIL =
   "OS Data Hub free plan detected. Detailed close-up mapping is Premium Data, so the map draws the most detailed free data magnified — " +
@@ -25,8 +25,14 @@ function normaliseCase(c: PlanningCase): PlanningCase {
   const base: PlanningCase = c.wings
     ? c
     : { ...c, wings: c.roof ? [{ ...c.roof, id: crypto.randomUUID(), name: "Main house", x: 0, y: 0 }] : [] };
+  // The seeded swatch follows the seeded *label* where we recognise it —
+  // stamping the variant default instead once baked a grey slate colour onto
+  // blocks labelled "Kent peg tile", so the drawings disagreed with the
+  // schedule and a re-covering showed no visible change between the sets.
   const seed = (w: Wing, label: string, color: string): Wing =>
-    w.material?.trim() ? w : { ...w, material: label.trim() || undefined, materialColor: w.materialColor ?? color };
+    w.material?.trim()
+      ? w
+      : { ...w, material: label.trim() || undefined, materialColor: w.materialColor ?? colorForMaterial(label) ?? color };
   return {
     ...base,
     wings: (base.wings ?? []).map((w) => seed(w, base.materials.existing, roofColorFor(base.materials, false))),
@@ -423,6 +429,21 @@ export default function App() {
   // from the diff instead, so flag it here rather than letting the mismatch pass
   // silently into a submitted application.
   const typeMismatch = hasBlocks && describeProposal(active).typeMismatch;
+  // A re-covering whose two variants draw the same colour produces existing and
+  // proposed sheets that look identical — on an application whose whole subject
+  // is the change of material, the drawings would show no change at all.
+  const coveringChanges = hasBlocks && describeProposal(active).coveringChanges;
+  const swatchesMatch =
+    coveringChanges &&
+    variantRoofColor(active.materials, false, true) === variantRoofColor(active.materials, true, true);
+  // Blank elevations get queried — but not on a pure re-covering, where the
+  // roof is the subject and the walls are explicitly unaltered. Nagging there
+  // would be asking for work the application doesn't need.
+  const pureRecovering = active.caseType === "re-roof" && !describeProposal(active).geometryChanged;
+  const noOpenings =
+    hasBlocks &&
+    !pureRecovering &&
+    ![...(active.wings ?? []), ...(active.proposedWings ?? [])].some((w) => (w.openings?.length ?? 0) > 0);
 
   return (
     <Shell {...shellProps}>
@@ -638,6 +659,20 @@ export default function App() {
                   Project type matches the model — you chose &ldquo;{caseTypeLabel(active.caseType)}&rdquo;, but the drawings don&rsquo;t
                   show it. The documents describe what you actually modelled instead; change the type via &ldquo;Edit details&rdquo;
                   or finish the changes on Building &amp; Elevations.
+                </li>
+              )}
+              {swatchesMatch && (
+                <li className="todo-item">
+                  <span className="tick todo">✓</span>
+                  Roof change is visible on the drawings — the existing and proposed coverings are drawn in the same colour, so
+                  the elevations show no change. Give one of them a different swatch on Building &amp; Elevations.
+                </li>
+              )}
+              {noOpenings && (
+                <li className="todo-item">
+                  <span className="tick todo">✓</span>
+                  Windows and doors added — the elevations are currently blank walls, which councils routinely query. Add
+                  openings on Building &amp; Elevations.
                 </li>
               )}
             </ul>

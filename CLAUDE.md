@@ -176,10 +176,16 @@ Single source of truth: parametric wings → everything else is derived.
   red line misaligns — see comment there; the OS copyright note belongs only
   on sheets that actually carry OS mapping), roof plans, and one elevation
   sheet per direction × existing/proposed, each captioned beneath its drawing.
-  `roofSwatchFor()` makes the proposed roof reuse the *existing* default
-  swatch when the covering isn't changing — the defaults are peg tile and grey
-  slate, so otherwise an unchanged roof renders orange on existing sheets and
-  grey on proposed ones, reading as a material change nobody applied for.
+  `roofSwatchFor()` → `variantRoofColor()` (svgDraw.ts) resolves roof colour
+  **from the material name first** (`colorForMaterial`), then the case swatch,
+  then the variant default. The drawing must never contradict the label the
+  schedule prints: colouring by variant alone drew blocks labelled "Kent peg
+  tile" in slate grey, and on a re-covering — where existing and proposed
+  differ in nothing but material — left the two sets looking identical, so the
+  drawings showed no change on an application that was entirely about the
+  change. An explicit per-block `materialColor` (the composer's colour picker)
+  still wins; the Download step warns when both variants still resolve to the
+  same colour. Covered by `components/svgDraw.test.ts`.
 
 ### OS / external data
 
@@ -250,6 +256,14 @@ changing.
   `ResizeObserver` calling `map.resize()` fixes "map doesn't draw until
   zoom". `canvasContextAttributes: { preserveDrawingBuffer: true }` is
   required for `toDataURL()` capture.
+- **The basemap capture must exclude the boundary overlays.** `capture()` in
+  `LocationPlanStep.tsx` hides `boundary-line`/`boundary-points`/
+  `blueline-*` around the snapshot (restoring them in a `finally`, or the user
+  is left with a boundary they can't see or edit). The PDF draws those lines
+  itself, as vectors placed from the capture centre; leaving the layers on
+  bakes a second raster copy into the image and the two land a fraction apart,
+  so the Location Plan prints a doubled red line — which reads as two site
+  boundaries at validation.
 - **Rotation is true quarter turns** (`rotationDeg` 0/90/180/270, CCW about
   the footprint, via `rotateLocalPoint` in faces3d.ts) — rotations preserve
   winding so Newell normals stay outward. The old `rotated` boolean was a

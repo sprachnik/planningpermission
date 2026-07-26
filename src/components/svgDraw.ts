@@ -16,6 +16,53 @@ export function roofColorFor(materials: { existingColor?: string; proposedColor?
     : (materials.existingColor ?? DEFAULT_EXISTING_ROOF_COLOR);
 }
 
+/** Swatches implied by the common UK roof coverings, most specific first —
+ *  "Concrete interlocking tile" must not be caught by the generic /tile/ rule,
+ *  and "Grey slate" must reach /slate/ before anything else. */
+const MATERIAL_SWATCHES: [RegExp, string][] = [
+  [/thatch/, "#c9a86a"],
+  [/sedum|green roof|living roof/, "#6f8f5a"],
+  [/copper/, "#5c8d7b"],
+  [/zinc/, "#8f9aa3"],
+  [/lead/, "#7d8a94"],
+  [/epdm|rubber|bitumen|felt|single.?ply|asphalt/, "#3f4245"],
+  [/shingle|shake|cedar/, "#9a7550"],
+  [/slate/, "#5a6570"],
+  [/pantile/, "#b06239"],
+  [/peg tile|plain tile|clay tile|clay/, "#b8583a"],
+  [/concrete|interlocking/, "#8a8175"],
+  [/metal|steel|profiled|corrugated|sheet/, "#7f8a90"],
+  [/glass|glazed|lantern/, "#cfe0ec"],
+  [/tile/, "#a86a45"],
+];
+
+/** The swatch a covering's *name* implies, or undefined if unrecognised.
+ *  The Schedule of Materials prints the label, so a drawing coloured against
+ *  its own label contradicts the schedule — and on a re-covering application,
+ *  where existing and proposed differ in nothing but material, it can leave
+ *  the two sets looking identical. Used as the default only: an explicit
+ *  per-block `materialColor` (the composer's colour picker) still wins. */
+export function colorForMaterial(label: string | undefined): string | undefined {
+  const s = (label ?? "").trim().toLowerCase();
+  if (!s) return undefined;
+  return MATERIAL_SWATCHES.find(([re]) => re.test(s))?.[1];
+}
+
+/** The roof colour for one variant when no per-block override applies: led by
+ *  the material name, falling back to the case swatch, then the variant
+ *  default. `coveringChanges` keeps an unchanged covering on the *existing*
+ *  default rather than flipping to the proposed one. */
+export function variantRoofColor(
+  materials: { existing: string; proposed: string; existingColor?: string; proposedColor?: string },
+  proposed: boolean,
+  coveringChanges: boolean,
+): string {
+  return (
+    colorForMaterial(proposed ? materials.proposed : materials.existing) ??
+    roofColorFor(materials, proposed && coveringChanges)
+  );
+}
+
 /** Mix a hex colour toward white (amount 0..1) — used to shade adjacent roof planes. */
 export function lighten(hex: string, amount: number): string {
   const n = hex.replace("#", "");
