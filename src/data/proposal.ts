@@ -3,34 +3,47 @@ import { geometryUnchanged, wingChanges } from "./caseGeometry";
 
 /** The project types offered when a case is created, in the order shown.
  *  `phrase` is the noun phrase the Planning Statement builds its opening
- *  sentence around ("consent for …"). */
-export const CASE_TYPES: { value: CaseType; label: string; hint: string; phrase: string }[] = [
+ *  sentence around ("consent for …").
+ *
+ *  `requires` names the evidence the model must show before that phrase may be
+ *  used. A stated type is a statement of intent, not proof: picking "re-roof"
+ *  and then leaving both coverings identical must not produce a document
+ *  claiming consent for a re-covering. Where the evidence is missing the
+ *  statement falls back to the existing↔proposed diff and `typeMismatch` is
+ *  raised so the UI can ask the user to sort it out. */
+export const CASE_TYPES: { value: CaseType; label: string; hint: string; phrase: string; requires?: "covering" | "geometry" }[] = [
   {
     value: "re-roof",
     label: "Roof covering replacement",
     hint: "Re-roof / re-covering — geometry stays as existing",
     phrase: "the replacement of the roof covering",
+    requires: "covering",
   },
   {
     value: "extension",
     label: "Extension",
     hint: "Single or two-storey extension, porch, conservatory",
     phrase: "an extension to the dwelling",
+    requires: "geometry",
   },
   {
     value: "loft-dormer",
     label: "Loft conversion / dormer",
     hint: "Roof alterations forming habitable loft space",
     phrase: "a loft conversion with dormer windows",
+    requires: "geometry",
   },
   {
     value: "outbuilding",
     label: "Outbuilding / garage",
     hint: "Detached building within the curtilage",
     phrase: "a detached outbuilding within the curtilage",
+    requires: "geometry",
   },
   {
     value: "other",
+    // Deliberately unconstrained: "external alterations" covers render, solar,
+    // joinery swaps and anything else that leaves the block model untouched.
     label: "Other external alterations",
     hint: "Windows, cladding, render, rooflights, anything else",
     phrase: "external alterations to the dwelling",
@@ -65,6 +78,11 @@ export function coveringChanged(planningCase: PlanningCase): boolean {
 export interface ProposalSummary {
   geometryChanged: boolean;
   coveringChanges: boolean;
+  /** The stated project type is contradicted by the model — e.g. "re-roof"
+   *  with both coverings identical, or "extension" with no geometry change.
+   *  The documents word themselves from the diff instead; surface this in the
+   *  UI so the user can correct the type or finish the modelling. */
+  typeMismatch: boolean;
   /** Sentences for the Planning Statement's "The proposal" section */
   statement: string;
   /** Annotation for the proposed elevations */
@@ -100,7 +118,13 @@ export function describeProposal(planningCase: PlanningCase): ProposalSummary {
     works.push(`replacement of the roof covering from ${existingCovering.toLowerCase()} to ${proposedCovering.toLowerCase()}`);
   }
 
-  const phrase = CASE_TYPES.find((t) => t.value === planningCase.caseType)?.phrase;
+  // A stated type only names the application when the model backs it up.
+  const type = CASE_TYPES.find((t) => t.value === planningCase.caseType);
+  const supported =
+    !type ? false : type.requires === "covering" ? coveringChanges : type.requires === "geometry" ? geometryChanged : true;
+  const typeMismatch = !!type && !supported;
+  const phrase = supported ? type!.phrase : undefined;
+
   let statement: string;
   if (phrase) {
     statement = `The application seeks consent for ${phrase}${works.length ? `, comprising ${works.join(" and ")}` : ""}.`;
@@ -135,5 +159,5 @@ export function describeProposal(planningCase: PlanningCase): ProposalSummary {
       ? "The proposal is limited to the replacement of the roof covering. No alterations are proposed to the building's footprint, height, openings or any other external element."
       : "No alterations are proposed to the building's footprint, height, openings or roof covering; the works are as scheduled above.";
 
-  return { geometryChanged, coveringChanges, statement, elevationNote, roofPlanNote, scheduleNote };
+  return { geometryChanged, coveringChanges, typeMismatch, statement, elevationNote, roofPlanNote, scheduleNote };
 }

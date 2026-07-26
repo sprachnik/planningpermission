@@ -118,6 +118,50 @@ describe("describeProposal", () => {
   });
 });
 
+/** The gap that produced a real bad document: the project type was trusted on
+ *  its own, so a case typed "re-roof" whose coverings were identical still
+ *  asked for consent to replace the roof covering — on the same page that said
+ *  the covering was unchanged. */
+describe("describeProposal — stated type contradicted by the model", () => {
+  it("does not claim a re-covering for a re-roof case whose coverings are identical", () => {
+    const result = describeProposal(
+      caseWith({
+        caseType: "re-roof",
+        wings: [wing({ material: "Kent peg tile" })],
+        proposedWings: [wing({ material: "Kent peg tile", widthM: 10 })],
+      }),
+    );
+    expect(result.coveringChanges).toBe(false);
+    expect(result.typeMismatch).toBe(true);
+    expect(result.statement).not.toMatch(/replacement of the roof covering/i);
+    // …and still describes what genuinely changed
+    expect(result.statement).toMatch(/Main house \(altered\)/);
+  });
+
+  it("keeps the re-roof wording when the covering really does change", () => {
+    const result = describeProposal(
+      caseWith({ caseType: "re-roof", materials: { existing: "Kent peg tile", proposed: "Welsh slate" } }),
+    );
+    expect(result.typeMismatch).toBe(false);
+    expect(result.statement).toMatch(/replacement of the roof covering/i);
+  });
+
+  it("does not claim an extension when no geometry diverged", () => {
+    const result = describeProposal(
+      caseWith({ caseType: "extension", materials: { existing: "Kent peg tile", proposed: "Welsh slate" } }),
+    );
+    expect(result.typeMismatch).toBe(true);
+    expect(result.statement).not.toMatch(/an extension to the dwelling/i);
+    expect(result.statement).toMatch(/replacement of the roof covering/i);
+  });
+
+  it("lets 'other' stand without geometry or covering evidence", () => {
+    const result = describeProposal(caseWith({ caseType: "other" }));
+    expect(result.typeMismatch).toBe(false);
+    expect(result.statement).toMatch(/external alterations to the dwelling/i);
+  });
+});
+
 describe("caseTypeLabel", () => {
   it("resolves known types and ignores unset ones", () => {
     expect(caseTypeLabel("outbuilding")).toBe("Outbuilding / garage");

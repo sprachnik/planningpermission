@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { renderToBuffer } from "@react-pdf/renderer";
 import type { PlanningCase } from "../data/types";
 import { PdfBundle } from "./PdfBundle";
+import { elevationSetScale } from "./drawingScales";
 import { geometryUnchanged } from "../data/caseGeometry";
 
 function sampleCase(overrides: Partial<PlanningCase> = {}): PlanningCase {
@@ -42,18 +43,37 @@ describe("geometryUnchanged", () => {
   });
 });
 
+/** Elevations were fitted per sheet, so adding a wing widened only the proposed
+ *  views and dropped them to 1:200 while existing stayed at 1:100 — two sheets
+ *  a planning officer is meant to compare directly, drawn at different sizes. */
+describe("elevationSetScale", () => {
+  const wideWing = { id: "w3", name: "Long range", x: 40, y: 0, widthM: 12, depthM: 6, roofType: "gable" as const, pitchDegrees: 35, eaveHeightM: 4 };
+
+  it("fits a compact house at 1:100", () => {
+    expect(elevationSetScale(sampleCase())).toBe(100);
+  });
+
+  it("uses one scale for both sets, driven by the widest view in either", () => {
+    const base = sampleCase();
+    const spread = sampleCase({ proposedWings: [...base.wings!, wideWing] });
+    // the proposed set alone forces 1:200 — the existing sheets must follow it
+    expect(elevationSetScale(spread)).toBe(200);
+    expect(elevationSetScale(sampleCase({ wings: [...base.wings!, wideWing] }))).toBe(200);
+  });
+});
+
 describe("PdfBundle smoke render", () => {
-  it("renders the full 10-page set for a complete case", async () => {
+  it("renders the full 14-page set for a complete case", async () => {
     const pdf: Uint8Array = await renderToBuffer(<PdfBundle planningCase={sampleCase()} />);
     expect(new TextDecoder().decode(pdf.subarray(0, 5))).toBe("%PDF-");
     expect(pdf.length).toBeGreaterThan(10_000);
-    // location + block plan + 2 roof plans + 4 elevation sheets + schedule + statement
-    expect(pageCount(pdf)).toBe(10);
+    // location + block plan + 2 roof plans + 8 elevation sheets + schedule + statement
+    expect(pageCount(pdf)).toBe(14);
   }, 30_000);
 
   it("omits the location and block plans when no boundary is drawn", async () => {
     const pdf = await renderToBuffer(<PdfBundle planningCase={sampleCase({ boundary: [] })} />);
-    expect(pageCount(pdf)).toBe(8);
+    expect(pageCount(pdf)).toBe(12);
   }, 30_000);
 
   it("renders a north bearing (rotated arrow, wind-suffixed titles) and all opening types", async () => {
@@ -71,7 +91,7 @@ describe("PdfBundle smoke render", () => {
         : w,
     );
     const pdf = await renderToBuffer(<PdfBundle planningCase={sampleCase({ wings, northBearingDeg: 22.5 })} />);
-    expect(pageCount(pdf)).toBe(10);
+    expect(pageCount(pdf)).toBe(14);
   }, 30_000);
 
   it("adds floor plans for diverged proposed geometry (extension)", async () => {
@@ -79,7 +99,7 @@ describe("PdfBundle smoke render", () => {
     const proposedWings = [...base.wings!, { id: "w3", name: "Extension", x: 0, y: 6, widthM: 5, depthM: 4, roofType: "mono-pitch" as const, pitchDegrees: 12, eaveHeightM: 2.6, highEdge: "depth-start" as const }];
     const pdf = await renderToBuffer(<PdfBundle planningCase={sampleCase({ proposedWings })} />);
     // the extension case pulls in existing + proposed floor plans
-    expect(pageCount(pdf)).toBe(12);
+    expect(pageCount(pdf)).toBe(16);
   }, 30_000);
 
   it("renders rooflights, context blocks, ground offsets, blue line and applicant metadata", async () => {
@@ -113,6 +133,6 @@ describe("PdfBundle smoke render", () => {
       />,
     );
     // storeys/rooms set → floor plans included
-    expect(pageCount(pdf)).toBe(12);
+    expect(pageCount(pdf)).toBe(16);
   }, 30_000);
 });

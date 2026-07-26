@@ -8,10 +8,11 @@ import { DrawingPage, OutlinePath, LineSegment } from "./DrawingKit";
 import { boundaryCentroid, toLocalMetres, boundaryBoundingBoxM } from "../geometry/latlng";
 import { boundaryInPlanFrame, boundaryClearances } from "../geometry/siteplan";
 import { CONTENT_WIDTH_MM, CONTENT_HEIGHT_MM, fitDrawingScale, PT_PER_MM, PAGE_WIDTH_MM, PAGE_HEIGHT_MM, MARGIN_MM } from "./scale";
+import { ELEVATION_DIRS, GROUND_OVERHANG_M, FLOOR_FRAME_GAP_M, FLOOR_TITLE_H_M, wingsFor, effectiveStoreys, floorPlansLayout, elevationSetScale, floorPlanSetScale } from "./drawingScales";
 import { roofColorFor, lighten, openingFill, garagePanelLines, CONTEXT_WALL_FILL, CONTEXT_ROOF_FILL } from "../components/svgDraw";
 import { windSuffix } from "../geometry/compass";
 import { geometryUnchanged, wingChanges } from "../data/caseGeometry";
-import { describeProposal, caseTypeLabel } from "../data/proposal";
+import { describeProposal, caseTypeLabel, coveringChanged } from "../data/proposal";
 
 const WALL_FILL = "#f2f2f2";
 const RED_LINE = "#e02424";
@@ -24,16 +25,21 @@ function northBearing(planningCase: PlanningCase): number {
   return planningCase.northBearingDeg ?? planningCase.composerBoundaryRotationDeg ?? 0;
 }
 
-/** The wing set a page should draw: proposed pages use proposedWings when the geometry diverged. */
-function wingsFor(planningCase: PlanningCase, proposed: boolean): Wing[] {
-  return (proposed ? planningCase.proposedWings : undefined) ?? planningCase.wings!;
-}
 
 
 /** Per-wing material overrides describe the variant their wing set belongs
  *  to, so they only apply to proposed pages once proposedWings exists. */
 function overridesApply(planningCase: PlanningCase, proposed: boolean): boolean {
   return !proposed || !!planningCase.proposedWings;
+}
+
+/** Which variant's default roof swatch to draw with. The defaults are peg tile
+ *  (existing) and grey slate (proposed) — a re-roof assumption from when every
+ *  case was a re-covering. Left alone, a case keeping its covering renders
+ *  orange on the existing sheets and grey on the proposed ones, reading as a
+ *  material change nobody applied for. Per-block `materialColor` still wins. */
+function roofSwatchFor(planningCase: PlanningCase, proposed: boolean): string {
+  return roofColorFor(planningCase.materials, proposed && coveringChanged(planningCase));
 }
 
 /** A wing's effective roof covering (label + swatch) for one variant, taking
@@ -49,7 +55,7 @@ function resolveWingMaterial(planningCase: PlanningCase, wing: Wing, proposed: b
   const base = proposed ? planningCase.materials.proposed : planningCase.materials.existing;
   return {
     label: wing.material?.trim() || base || "not specified",
-    color: wing.materialColor ?? roofColorFor(planningCase.materials, proposed),
+    color: wing.materialColor ?? roofSwatchFor(planningCase, proposed),
   };
 }
 
@@ -131,7 +137,7 @@ function RoofPlanPage({ planningCase, proposed, meta }: { planningCase: Planning
   const wings = wingsFor(planningCase, proposed);
   const scene = planScene(wings);
   const colors = wingColorMap(planningCase, proposed);
-  const baseColor = roofColorFor(planningCase.materials, proposed);
+  const baseColor = roofSwatchFor(planningCase, proposed);
   const roofFillFor = (wingId: string, context?: boolean) => (context ? CONTEXT_ROOF_FILL : lighten(colors[wingId] ?? baseColor, 0.45));
   const extent = { width: scene.widthM, height: scene.heightM };
   const changes = proposed ? wingChanges(planningCase) : undefined;
@@ -234,35 +240,43 @@ function ScenePolygonsPdf({
   );
 }
 
+
+/**
+ * One elevation per sheet, captioned beneath the drawing. UK planning drawings
+ * name each view under the view itself and hold a single scale across the whole
+ * set, so an officer can compare existing against proposed directly — hence
+ * `scaleDenominator` is computed once for the set (`elevationSetScale`) and
+ * passed in, rather than fitted per page. Fitting per page is what let a
+ * proposed sheet silently drop to 1:200 because a new wing made it wider.
+ */
 function ElevationsPage({
   planningCase,
   proposed,
-  dirs,
+  dir,
   meta,
+  scaleDenominator,
 }: {
   planningCase: PlanningCase;
   proposed: boolean;
-  dirs: [Direction, Direction];
+  dir: Direction;
   meta: PageMeta;
+  scaleDenominator: number;
 }) {
   const wings = wingsFor(planningCase, proposed);
-  const roofColor = roofColorFor(planningCase.materials, proposed);
+  const roofColor = roofSwatchFor(planningCase, proposed);
   const wingColors = wingColorMap(planningCase, proposed);
-  const sceneA = elevationScene(wings, dirs[0]);
-  const sceneB = elevationScene(wings, dirs[1]);
-  const gap = 2;
-  const bOffset = sceneA.widthM + gap;
+  const scene = elevationScene(wings, dir);
   const bearing = northBearing(planningCase);
   const dirName: Record<Direction, string> = { N: "North", E: "East", S: "South", W: "West" };
-  const elevName = (dir: Direction) => `${dirName[dir]}${windSuffix(dir, bearing)}`;
-  const extent = { width: sceneA.widthM + gap + sceneB.widthM, height: Math.max(sceneA.heightM, sceneB.heightM) };
+  const elevName = (d: Direction) => `${dirName[d]}${windSuffix(d, bearing)}`;
+  const extent = { width: scene.widthM, height: scene.heightM };
 
   const notes = [materialsNote(planningCase, proposed)];
   const heights = buildingHeights(wings);
   notes.push(
     `Maximum height ${heights.maxRidgeM.toFixed(2)} m to ridge; highest eaves ${heights.maxEaveM.toFixed(2)} m above datum (chimney stacks excluded)`,
   );
-  if (windSuffix(dirs[0], bearing)) {
+  if (windSuffix(dir, bearing)) {
     notes.push("Bracketed compass points give the true direction each elevation faces");
   }
   if (wings.some((w) => w.isContext)) {
@@ -287,34 +301,31 @@ function ElevationsPage({
 
   return (
     <DrawingPage
-      title={`${proposed ? "Proposed" : "Existing"} Elevations (${elevName(dirs[0])} & ${elevName(dirs[1])})`}
+      title={`${proposed ? "Proposed" : "Existing"} Elevation — ${elevName(dir)}`}
       address={meta.address}
       applicantLine={meta.applicantLine}
-      scaleDenominator={fitDrawingScale(extent)}
+      scaleDenominator={scaleDenominator}
       drawingExtentM={extent}
       drawingNumber={meta.drawingNumber}
       dateISO={meta.dateISO}
       notes={notes}
+      caption={`${elevName(dir)} Elevation — ${proposed ? "Proposed" : "Existing"}`}
     >
       {(toMm) => (
         <>
-          <ScenePolygonsPdf scene={sceneA} toMm={toMm} roofColor={roofColor} wingColors={wingColors} />
-          <ScenePolygonsPdf scene={sceneB} toMm={toMm} roofColor={roofColor} wingColors={wingColors} offsetX={bOffset} />
+          <ScenePolygonsPdf scene={scene} toMm={toMm} roofColor={roofColor} wingColors={wingColors} />
           {/* ground: one datum line on flat sites, per-block baselines on stepped ones */}
           {stepped ? (
-            <>
-              {groundSegments(wings, dirs[0], sceneA.origin).map((s, i) => (
-                <LineSegment key={`ga${i}`} from={s.from} to={s.to} toMm={toMm} strokeWidth={0.5} />
-              ))}
-              {groundSegments(wings, dirs[1], sceneB.origin).map((s, i) => (
-                <LineSegment key={`gb${i}`} from={{ x: s.from.x + bOffset, y: s.from.y }} to={{ x: s.to.x + bOffset, y: s.to.y }} toMm={toMm} strokeWidth={0.5} />
-              ))}
-            </>
+            groundSegments(wings, dir, scene.origin).map((s, i) => (
+              <LineSegment key={`g${i}`} from={s.from} to={s.to} toMm={toMm} strokeWidth={0.5} />
+            ))
           ) : (
-            <>
-              <LineSegment from={{ x: -0.8, y: 0 }} to={{ x: sceneA.widthM + 0.8, y: 0 }} toMm={toMm} strokeWidth={0.5} />
-              <LineSegment from={{ x: bOffset - 0.8, y: 0 }} to={{ x: bOffset + sceneB.widthM + 0.8, y: 0 }} toMm={toMm} strokeWidth={0.5} />
-            </>
+            <LineSegment
+              from={{ x: -GROUND_OVERHANG_M, y: 0 }}
+              to={{ x: scene.widthM + GROUND_OVERHANG_M, y: 0 }}
+              toMm={toMm}
+              strokeWidth={0.5}
+            />
           )}
         </>
       )}
@@ -327,10 +338,13 @@ function LocationPlanPage({ planningCase, meta }: { planningCase: PlanningCase; 
   const hasCapture = !!planningCase.locationPlanImage && !!planningCase.mapCentre;
   const year = meta.dateISO.slice(0, 4);
   const blueLine = (planningCase.blueLine?.length ?? 0) >= 3 ? planningCase.blueLine! : null;
-  const notes = [
-    `Contains OS data © Crown copyright and database right ${year}`,
-    "Red line denotes the application site boundary, including access to the highway",
-  ];
+  // The OS acknowledgement belongs on sheets that actually carry OS mapping.
+  // Printing it on the no-basemap fallback claimed Crown copyright over a blank
+  // sheet — a false attribution on a document going to a council.
+  const notes = hasCapture
+    ? [`Contains OS data © Crown copyright and database right ${year}`]
+    : ["No Ordnance Survey basemap captured — capture one at the Location Plan step before submitting"];
+  notes.push("Red line denotes the application site boundary, including access to the highway");
   if (blueLine) notes.push("Blue line denotes other land in the applicant's ownership");
 
   if (hasCapture) {
@@ -480,25 +494,16 @@ function BlockPlanPage({ planningCase, meta }: { planningCase: PlanningCase; met
 
 const FLOOR_NAMES = ["Ground floor", "First floor", "Second floor", "Third floor"];
 
-/** Storeys a block contributes to the floor plans: explicit setting, else a
- *  conservative guess from the eaves (two storeys needs ~4.4 m of wall). */
-function effectiveStoreys(w: Wing): number {
-  return w.storeys ?? (w.eaveHeightM >= 4.4 ? 2 : 1);
-}
-
 /**
  * Outline-level floor plans, one frame per storey. The block model has no
  * internal partitions — room uses are annotated per block, which satisfies
  * most validation lists for external-works applications.
  */
-function FloorPlansPage({ planningCase, proposed, meta }: { planningCase: PlanningCase; proposed: boolean; meta: PageMeta }) {
-  const wings = wingsFor(planningCase, proposed).filter((w) => !w.isContext);
-  const scene = planScene(wings.length ? wings : wingsFor(planningCase, proposed));
-  const levels = Math.max(1, ...wings.map(effectiveStoreys));
-  const gap = 3;
+function FloorPlansPage({ planningCase, proposed, meta, scaleDenominator }: { planningCase: PlanningCase; proposed: boolean; meta: PageMeta; scaleDenominator: number }) {
+  const { wings, scene, levels, extent } = floorPlansLayout(planningCase, proposed);
+  const gap = FLOOR_FRAME_GAP_M;
   const frameW = scene.widthM;
-  const titleH = 2;
-  const extent = { width: levels * frameW + (levels - 1) * gap, height: scene.heightM + titleH };
+  const titleH = FLOOR_TITLE_H_M;
   const byId = new Map(wings.map((w) => [w.id, w]));
 
   const notes = [
@@ -511,7 +516,7 @@ function FloorPlansPage({ planningCase, proposed, meta }: { planningCase: Planni
       title={`${proposed ? "Proposed" : "Existing"} Floor Plans`}
       address={meta.address}
       applicantLine={meta.applicantLine}
-      scaleDenominator={fitDrawingScale(extent)}
+      scaleDenominator={scaleDenominator}
       drawingExtentM={extent}
       drawingNumber={meta.drawingNumber}
       dateISO={meta.dateISO}
@@ -579,7 +584,9 @@ function StatementPage({ planningCase, meta }: { planningCase: PlanningCase; met
   const hProposed = buildingHeights(wingsFor(planningCase, true));
   const existingCovering = planningCase.materials.existing || "the existing covering";
   const proposedCovering = planningCase.materials.proposed || "the proposed covering";
-  const typeLabel = caseTypeLabel(planningCase.caseType);
+  // Suppressed when the model contradicts the stated type — the sub-line would
+  // otherwise reassert the very claim describeProposal() just declined to make.
+  const typeLabel = proposal.typeMismatch ? undefined : caseTypeLabel(planningCase.caseType);
 
   const scaleText = unchanged
     ? `The building height is unchanged at ${hExisting.maxRidgeM.toFixed(2)} m to the ridge.`
@@ -721,6 +728,10 @@ export function PdfBundle({ planningCase }: { planningCase: PlanningCase }) {
     (!geometryUnchanged(planningCase) ||
       [...wings, ...(planningCase.proposedWings ?? [])].some((w) => w.storeys !== undefined || w.roomLabels?.some((r) => r.trim())));
 
+  // One scale per drawing family, so existing and proposed sheets always match.
+  const elevationScale = hasRoof ? elevationSetScale(withWings) : 100;
+  const floorPlanScale = floorPlansWanted ? floorPlanSetScale(withWings) : 100;
+
   // Sequential, unique drawing numbers regardless of which pages are included.
   let seq = 0;
   const meta = (): PageMeta => ({
@@ -736,12 +747,21 @@ export function PdfBundle({ planningCase }: { planningCase: PlanningCase }) {
       {hasBoundary && hasRoof && <BlockPlanPage planningCase={withWings} meta={meta()} />}
       {hasRoof && <RoofPlanPage planningCase={withWings} proposed={false} meta={meta()} />}
       {hasRoof && <RoofPlanPage planningCase={withWings} proposed meta={meta()} />}
-      {hasRoof && <ElevationsPage planningCase={withWings} proposed={false} dirs={["S", "E"]} meta={meta()} />}
-      {hasRoof && <ElevationsPage planningCase={withWings} proposed={false} dirs={["N", "W"]} meta={meta()} />}
-      {hasRoof && <ElevationsPage planningCase={withWings} proposed dirs={["S", "E"]} meta={meta()} />}
-      {hasRoof && <ElevationsPage planningCase={withWings} proposed dirs={["N", "W"]} meta={meta()} />}
-      {floorPlansWanted && <FloorPlansPage planningCase={withWings} proposed={false} meta={meta()} />}
-      {floorPlansWanted && <FloorPlansPage planningCase={withWings} proposed meta={meta()} />}
+      {hasRoof &&
+        ([false, true] as const).flatMap((proposed) =>
+          ELEVATION_DIRS.map((dir) => (
+            <ElevationsPage
+              key={`${proposed ? "p" : "e"}-${dir}`}
+              planningCase={withWings}
+              proposed={proposed}
+              dir={dir}
+              meta={meta()}
+              scaleDenominator={elevationScale}
+            />
+          )),
+        )}
+      {floorPlansWanted && <FloorPlansPage planningCase={withWings} proposed={false} meta={meta()} scaleDenominator={floorPlanScale} />}
+      {floorPlansWanted && <FloorPlansPage planningCase={withWings} proposed meta={meta()} scaleDenominator={floorPlanScale} />}
       {hasRoof && <SchedulePage planningCase={withWings} meta={meta()} />}
       {hasRoof && <StatementPage planningCase={withWings} meta={meta()} />}
     </Document>

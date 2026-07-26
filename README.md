@@ -2,7 +2,7 @@
 
 Generates the drawing set a UK householder planning application needs —
 Location Plan with red-line boundary, Block Plan, Existing/Proposed Roof
-Plans, outline Floor Plans, four Existing/Proposed Elevations, a Schedule of
+Plans, outline Floor Plans, eight elevation sheets, a Schedule of
 Materials and a generated Planning Statement — as a single scaled, annotated
 PDF bundle ready for the Planning Portal. Covers extensions, loft conversions
 and dormers, outbuildings, re-roofs and other external alterations: each case
@@ -82,8 +82,11 @@ the existing↔proposed difference alone. Then the 3-step wizard:
    (`@react-pdf/renderer`): every page carries a real title block (unique
    drawing number, revision, date, "1:100 at A4" statement, PLANNING purpose
    tag) and a real-world-accurate scale bar (1:100, falling back to an honest
-   1:200 when the drawing wouldn't fit). The Location Plan overlays the
-   boundary on the captured basemap at true scale with the OS copyright line;
+   1:200 when the drawing wouldn't fit — chosen once per drawing family, so
+   existing and proposed sheets are always at the same scale for comparison).
+   Elevations get a sheet each, captioned beneath the drawing. The Location
+   Plan overlays the boundary on the captured basemap at true scale with the
+   OS copyright line (printed only when a basemap was actually captured);
    a Block Plan carries boundary clearance dimensions; outline Floor Plans
    join the set for extension-type cases; and a Schedule of Materials plus a
    generated Planning Statement close it. Both of those last two are worded

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { PDFDownloadLink } from "@react-pdf/renderer";
 import { repository } from "./data/localStorageRepository";
 import type { CaseType, PlanningCase, Wing } from "./data/types";
-import { CASE_TYPES, caseTypeLabel } from "./data/proposal";
+import { CASE_TYPES, caseTypeLabel, describeProposal } from "./data/proposal";
 import { LocationPlanStep } from "./components/LocationPlanStep";
 import { RoofComposerStep } from "./components/composer/RoofComposerStep";
 import { GuidePage } from "./components/GuidePage";
@@ -419,6 +419,10 @@ export default function App() {
   const hasBoundary = active.boundary.length >= 3;
   const hasCapture = !!active.locationPlanImage;
   const hasBlocks = (active.wings?.length ?? 0) > 0;
+  // The stated project type isn't borne out by the model — the PDF words itself
+  // from the diff instead, so flag it here rather than letting the mismatch pass
+  // silently into a submitted application.
+  const typeMismatch = hasBlocks && describeProposal(active).typeMismatch;
 
   return (
     <Shell {...shellProps}>
@@ -628,6 +632,14 @@ export default function App() {
                 <span className={`tick ${hasBlocks ? "done" : "todo"}`}>✓</span>
                 Building modelled{hasBlocks ? ` (${active.wings!.length} block${active.wings!.length === 1 ? "" : "s"})` : " — add at least one block on Building & Elevations"}
               </li>
+              {hasBlocks && typeMismatch && (
+                <li className="todo-item">
+                  <span className="tick todo">✓</span>
+                  Project type matches the model — you chose &ldquo;{caseTypeLabel(active.caseType)}&rdquo;, but the drawings don&rsquo;t
+                  show it. The documents describe what you actually modelled instead; change the type via &ldquo;Edit details&rdquo;
+                  or finish the changes on Building &amp; Elevations.
+                </li>
+              )}
             </ul>
             {(hasBoundary || hasBlocks) && (
               // PDFDownloadLink renders its document to a blob once on mount and

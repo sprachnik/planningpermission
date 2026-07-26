@@ -24,10 +24,14 @@ export function mmForRealMetres(metres: number, scaleDenominator: number): numbe
  * (elevations/plans); 1:200 falls back to 1:500 (block plans). The scale bar
  * reads the same denominator so the page stays self-describing.
  */
-export function fitDrawingScale(extentM: { width: number; height: number }, preferred = 100): number {
+export function fitDrawingScale(
+  extentM: { width: number; height: number },
+  preferred = 100,
+  availableHeightMm = CONTENT_HEIGHT_MM,
+): number {
   const candidates = preferred === 100 ? [100, 200] : preferred === 200 ? [200, 500] : [preferred];
   for (const s of candidates) {
-    if (mmForRealMetres(extentM.width, s) <= CONTENT_WIDTH_MM && mmForRealMetres(extentM.height, s) <= CONTENT_HEIGHT_MM) {
+    if (mmForRealMetres(extentM.width, s) <= CONTENT_WIDTH_MM && mmForRealMetres(extentM.height, s) <= availableHeightMm) {
       return s;
     }
   }

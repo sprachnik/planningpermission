@@ -14,6 +14,10 @@ function mmToPt(mm: number): number {
   return mm * PT_PER_MM;
 }
 
+/** Height reserved beneath a drawing for its caption. Exported so scale-fitting
+ *  callers can subtract it from the usable content height. */
+export const CAPTION_BAND_MM = 8;
+
 const styles = StyleSheet.create({
   page: {
     padding: 0,
@@ -46,6 +50,11 @@ const styles = StyleSheet.create({
     fontSize: 6.5,
     color: "#111",
     marginTop: 2,
+  },
+  captionText: {
+    fontSize: 9,
+    color: "#111",
+    textAlign: "center",
   },
   border: {
     position: "absolute",
@@ -138,6 +147,10 @@ export interface DrawingPageProps {
   revision?: string;
   /** Short annotation lines shown in the title block (materials, OS licence, etc.). */
   notes?: string[];
+  /** Caption printed directly beneath the drawing, e.g. "South Elevation".
+   *  Planning drawings name each view under the view itself — the title block
+   *  is too far away to bind a label to a drawing unambiguously. */
+  caption?: string;
   showNorthArrow?: boolean;
   /** True bearing the page's "up" direction faces — rotates the north arrow. */
   northBearingDeg?: number;
@@ -157,6 +170,7 @@ export function DrawingPage({
   dateISO,
   revision = "A",
   notes,
+  caption,
   showNorthArrow,
   northBearingDeg,
   backgroundImageDataUrl,
@@ -164,12 +178,16 @@ export function DrawingPage({
 }: DrawingPageProps) {
   const contentAreaWidthMm = PAGE_WIDTH_MM - MARGIN_MM * 2;
   const contentAreaHeightMm = PAGE_HEIGHT_MM - MARGIN_MM * 2 - TITLE_BLOCK_HEIGHT_MM;
+  // Reserved strip at the foot of the content area so the caption never collides
+  // with a drawing that fills the page. Callers that fit a scale must subtract
+  // the same band (see CAPTION_BAND_MM) or a tall drawing could overrun it.
+  const captionBandMm = caption ? CAPTION_BAND_MM : 0;
 
   const drawingWidthMm = mmForRealMetres(drawingExtentM.width, scaleDenominator);
   const drawingHeightMm = mmForRealMetres(drawingExtentM.height, scaleDenominator);
 
   const offsetX = (contentAreaWidthMm - drawingWidthMm) / 2;
-  const offsetY = (contentAreaHeightMm - drawingHeightMm) / 2;
+  const offsetY = (contentAreaHeightMm - captionBandMm - drawingHeightMm) / 2;
 
   const toMm = (p: Point): Point => ({
     x: offsetX + mmForRealMetres(p.x, scaleDenominator),
@@ -207,6 +225,20 @@ export function DrawingPage({
         {showNorthArrow && (
           <View style={{ position: "absolute", top: 0, right: 0 }}>
             <NorthArrow bearingDeg={northBearingDeg} />
+          </View>
+        )}
+        {caption && (
+          // Sits under the drawing itself, not at the page foot — a caption that
+          // floats away from its drawing stops identifying it.
+          <View
+            style={{
+              position: "absolute",
+              left: 0,
+              top: mmToPt(offsetY + drawingHeightMm + 3),
+              width: mmToPt(contentAreaWidthMm),
+            }}
+          >
+            <Text style={styles.captionText}>{caption}</Text>
           </View>
         )}
       </View>

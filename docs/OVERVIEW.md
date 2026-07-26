@@ -11,7 +11,8 @@ drawing set a UK householder planning application needs — extensions, loft
 conversions and dormers, outbuildings, re-roofs and other external
 alterations: Location Plan (1:1250/1:2500 on OS mapping with a red-line
 boundary), Block Plan, Existing/Proposed Roof Plans, outline Floor Plans, and
-four Existing/Proposed Elevations at 1:100 — each with a scale bar that is
+eight elevation sheets at 1:100 (each compass direction × existing/proposed,
+one elevation per sheet, captioned) — each with a scale bar that is
 correct by construction — plus a Schedule of Materials and a generated
 Planning Statement, bundled into one client-side PDF for the Planning Portal.
 

@@ -11,8 +11,9 @@ The product is **not roof-specific** — a case carries a `caseType`
 created, and the copy throughout is framed around planning applications
 generally. Output: Location Plan (1:1250/1:2500 with
 red + optional blue line), Block Plan (1:200/1:500 with boundary clearance
-dimensions), Existing/Proposed Roof Plans and four Existing/Proposed
-Elevations (1:100), outline Floor Plans (auto-included for extension-type
+dimensions), Existing/Proposed Roof Plans and eight elevation sheets (all four
+compass directions × existing/proposed, one elevation per sheet, captioned
+beneath the drawing), outline Floor Plans (auto-included for extension-type
 cases), a Schedule of Materials and a generated Planning Statement — each
 drawing with an accurate scale bar, bundled as one PDF for the Planning
 Portal.
@@ -108,7 +109,15 @@ password protection).
   keyed everything off `geometryUnchanged()` and so asserted "consent for the
   replacement of the roof covering" for *any* unchanged-geometry case
   (window swaps, render, solar). Never reintroduce that inference: unchanged
-  geometry means unchanged geometry, nothing more. Covered by
+  geometry means unchanged geometry, nothing more.
+  The same trap has a second door, closed by `CASE_TYPES[].requires`: a stated
+  `caseType` is a statement of intent, not evidence. Picking "re-roof" and
+  leaving both coverings identical once produced a statement asking consent
+  "for the replacement of the roof covering" on the same page that said the
+  covering was unchanged. A type's phrase is only used when the model backs it
+  up (`requires: "covering" | "geometry"`, unset = always allowed, as for
+  "other"); otherwise the wording falls back to the diff and `typeMismatch` is
+  raised so App.tsx can flag it on the Download step. Covered by
   `proposal.test.ts`.
 - `src/data/repository.ts` + `localStorageRepository.ts` — the "database
   stub". All persistence is per-browser localStorage behind a small
@@ -151,11 +160,26 @@ Single source of truth: parametric wings → everything else is derived.
   construction.
 - `src/pdf/DrawingKit.tsx` — `DrawingPage` (title block, border, north
   arrow, `ScaleBar`) hands children a `toMm` transform (centred, y-flipped).
+  An optional `caption` prints directly beneath the drawing; it reserves
+  `CAPTION_BAND_MM` at the foot of the content area, which scale-fitting
+  callers must subtract too.
+- `src/pdf/drawingScales.ts` — **one scale per drawing family.**
+  `elevationSetScale()`/`floorPlanSetScale()` fit once across *both* variants
+  and every direction, and the result is passed into each page. Fitting each
+  sheet to its own extent is what let a proposed sheet quietly drop to 1:200
+  because a new wing made it wider, while the existing sheet it is meant to be
+  compared against stayed at 1:100. Kept out of `PdfBundle.tsx` so the
+  component module only exports components (react-refresh lint rule).
 - `src/pdf/PdfBundle.tsx` — assembles the full document: Location Plan (only
   when boundary drawn; when a basemap was captured the drawing extent MUST
   be the image's true ground coverage centred on the capture point, or the
-  red line misaligns — see comment there), roof plans, and elevation pages
-  (S+E, N+W) × existing/proposed.
+  red line misaligns — see comment there; the OS copyright note belongs only
+  on sheets that actually carry OS mapping), roof plans, and one elevation
+  sheet per direction × existing/proposed, each captioned beneath its drawing.
+  `roofSwatchFor()` makes the proposed roof reuse the *existing* default
+  swatch when the covering isn't changing — the defaults are peg tile and grey
+  slate, so otherwise an unchanged roof renders orange on existing sheets and
+  grey on proposed ones, reading as a material change nobody applied for.
 
 ### OS / external data
 
