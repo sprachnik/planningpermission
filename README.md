@@ -2,7 +2,7 @@
 
 Generates the drawing set a UK householder planning application needs —
 Location Plan with red-line boundary, Block Plan, Existing/Proposed Roof
-Plans, outline Floor Plans, eight elevation sheets, a Schedule of
+Plans, eight elevation sheets, a Schedule of
 Materials and a generated Planning Statement — as a single scaled, annotated
 PDF bundle ready for the Planning Portal. Covers extensions, loft conversions
 and dormers, outbuildings, re-roofs and other external alterations: each case
@@ -77,7 +77,7 @@ the existing↔proposed difference alone. Then the 3-step wizard:
    unchanged" on proposed blocks). A **plan north bearing** — derived
    automatically from the boundary underlay rotation, manually overridable —
    drives a compass overlay on the plan, true-compass elevation names
-   ("South (SSW)") and the rotated north arrow on the PDF.
+   ("SSW Elevation") and the rotated north arrow on the PDF.
 3. **Download** — `src/pdf/PdfBundle.tsx` assembles everything into one PDF
    (`@react-pdf/renderer`): every page carries a real title block (unique
    drawing number, revision, date, "1:100 at A4" statement, PLANNING purpose
@@ -87,8 +87,8 @@ the existing↔proposed difference alone. Then the 3-step wizard:
    Elevations get a sheet each, captioned beneath the drawing. The Location
    Plan overlays the boundary on the captured basemap at true scale with the
    OS copyright line (printed only when a basemap was actually captured);
-   a Block Plan carries boundary clearance dimensions; outline Floor Plans
-   join the set for extension-type cases; and a Schedule of Materials plus a
+   a Block Plan carries boundary clearance dimensions; and a Schedule of
+   Materials plus a
    generated Planning Statement close it. Both of those last two are worded
    from the case's project type and the real existing↔proposed difference
    (`src/data/proposal.ts`), so an extension or window job is never described
@@ -114,10 +114,10 @@ The block model represents most houses fairly — elevations carry openings,
 chimneys and rooflights, and neighbouring buildings can be added as grey
 context blocks. But blocks are rectangular and quarter-turn only (no angled
 wings or curved bays), junctions don't draw true valley lines, rooflights
-can't sit on hip planes, floor plans are outline-level (footprints + room
-labels, no internal walls), and conservation officers are the pickiest
-audience. Check your council's local validation checklist before treating the
-output as submission-ready for complex houses.
+can't sit on hip planes, the set carries no floor plans (some councils ask
+for them on extensions and conversions), and conservation officers are the
+pickiest audience. Check your council's local validation checklist before
+treating the output as submission-ready for complex houses.
 
 ## Deploying to Netlify
 
