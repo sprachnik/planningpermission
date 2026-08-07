@@ -135,7 +135,7 @@ export function GuidePage({ onBack }: { onBack: () => void }) {
         </h3>
         <p>
           The bundle gives you the location plan, a block plan with boundary clearances, existing/proposed roof plans,
-          outline floor plans, all four elevations both ways, a schedule of materials and a short planning statement —
+          all four elevations both ways, a schedule of materials and a short planning statement —
           every drawing scaled and scale-barred. Before submitting, check the set against your council's{" "}
           <strong>local validation checklist</strong> (on their website). Common extras they ask for: materials described
           on the drawings, unchanged elevations annotated "no external changes proposed", and one document per drawing —
@@ -182,8 +182,8 @@ export function GuidePage({ onBack }: { onBack: () => void }) {
       <div className="guide-warn">
         <strong>Current limits of the generated set.</strong> Buildings are modelled as rectangular blocks at
         quarter-turn angles, so an angled wing or a curved bay can't be drawn faithfully. There's no true valley line
-        where two blocks meet, rooflights can't sit on hip slopes, and floor plans are outline-level — footprints and
-        room labels, not internal walls, which most councils accept for external-works applications but not all.
+        where two blocks meet, rooflights can't sit on hip slopes, and the set carries no floor plans — fine for
+        external-works applications, but some councils ask for them on extensions and conversions.
         Straightforward applications are routinely validated without perfection, but conservation officers are the
         pickiest audience — for a sensitive site, treat the output as a strong draft and check your council's list before
         relying on it.

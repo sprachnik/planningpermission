@@ -111,10 +111,11 @@ export interface Wing extends RoofParams {
   /** A neighbouring building shown for context only (semis/terraces): drawn
    *  in grey outline, excluded from schedules, height figures and notes. */
   isContext?: boolean;
-  /** Number of storeys, for the floor plan pages (default 1) */
+  /** @deprecated fed the floor plan pages, removed from the PDF (Aug 2026);
+   *  kept so saved cases still parse. Never geometry. */
   storeys?: number;
-  /** Room names per storey (index 0 = ground floor), comma-separated within
-   *  each entry — printed on the floor plan pages. Display-only. */
+  /** @deprecated fed the floor plan pages, removed from the PDF (Aug 2026);
+   *  kept so saved cases still parse. Never geometry. */
   roomLabels?: string[];
   /** Facing wall material for this block (e.g. "Red stock brick") — printed
    *  in the schedule; existing/proposed context comes from the wing set. */

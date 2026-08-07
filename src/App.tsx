@@ -347,7 +347,7 @@ export default function App() {
         <div className="hero">
           <h1>The drawing set, without the drawing.</h1>
           <p>
-            Location plan, block plan, floor plans, roof plans and all four elevations — existing and proposed — at true
+            Location plan, block plan, roof plans and all four elevations — existing and proposed — at true
             scale, bundled as one Planning Portal-ready PDF. For extensions, loft conversions, outbuildings, re-roofs and
             other external alterations.
           </p>
@@ -404,7 +404,7 @@ export default function App() {
                 <span className="step-num">3</span>
                 <h3>Download the set</h3>
                 <p>
-                  One PDF: location and block plans, existing and proposed roof plans, floor plans, four elevations each
+                  One PDF: location and block plans, existing and proposed roof plans, four elevations each
                   way, a schedule of materials and a planning statement — every drawing with an accurate scale bar.
                 </p>
               </div>
@@ -690,8 +690,8 @@ export default function App() {
             )}
             <br />
             <small className="muted">
-              One PDF with a page per drawing (Location Plan, Block Plan, Existing/Proposed Roof Plans, Elevations and
-              Floor Plans, plus a Schedule of Materials and Planning Statement). Split into separate files before
+              One PDF with a page per drawing (Location Plan, Block Plan, Existing/Proposed Roof Plans and Elevations,
+              plus a Schedule of Materials and Planning Statement). Split into separate files before
               uploading if your planning portal requires one document per drawing.
             </small>
           </article>

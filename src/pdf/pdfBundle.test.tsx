@@ -41,6 +41,23 @@ describe("geometryUnchanged", () => {
     expect(geometryUnchanged({ ...base, proposedWings })).toBe(true);
     expect(geometryUnchanged({ ...base, proposedWings: [...proposedWings, { ...proposedWings[0], id: "w9", x: 20 }] })).toBe(false);
   });
+
+  it("ignores editing noise that leaves the built form identical", () => {
+    // Each of these once flagged a pure re-covering as "Proposed geometry
+    // differs from existing" on the schedule: raw-JSON comparison read
+    // renames, materialised defaults and leftover empty arrays as changes.
+    const base = sampleCase();
+    const noisy = base.wings!.map((w) => ({
+      ...w,
+      name: `${w.name} (renamed)`,
+      rotationDeg: 0 as const,
+      openings: [],
+      rearPitchDegrees: w.pitchDegrees,
+    }));
+    expect(geometryUnchanged({ ...base, proposedWings: [...noisy].reverse() })).toBe(true);
+    // …while a real change of the same fields still registers
+    expect(geometryUnchanged({ ...base, proposedWings: base.wings!.map((w) => ({ ...w, rotationDeg: 90 as const })) })).toBe(false);
+  });
 });
 
 /** Elevations were fitted per sheet, so adding a wing widened only the proposed
@@ -76,7 +93,7 @@ describe("PdfBundle smoke render", () => {
     expect(pageCount(pdf)).toBe(12);
   }, 30_000);
 
-  it("renders a north bearing (rotated arrow, wind-suffixed titles) and all opening types", async () => {
+  it("renders a north bearing (rotated arrow, wind-named titles) and all opening types", async () => {
     const base = sampleCase();
     const wings = base.wings!.map((w, i) =>
       i === 0
@@ -94,12 +111,11 @@ describe("PdfBundle smoke render", () => {
     expect(pageCount(pdf)).toBe(14);
   }, 30_000);
 
-  it("adds floor plans for diverged proposed geometry (extension)", async () => {
+  it("stays at 14 pages for diverged proposed geometry — floor plans are no longer part of the set", async () => {
     const base = sampleCase();
     const proposedWings = [...base.wings!, { id: "w3", name: "Extension", x: 0, y: 6, widthM: 5, depthM: 4, roofType: "mono-pitch" as const, pitchDegrees: 12, eaveHeightM: 2.6, highEdge: "depth-start" as const }];
     const pdf = await renderToBuffer(<PdfBundle planningCase={sampleCase({ proposedWings })} />);
-    // the extension case pulls in existing + proposed floor plans
-    expect(pageCount(pdf)).toBe(16);
+    expect(pageCount(pdf)).toBe(14);
   }, 30_000);
 
   it("renders rooflights, context blocks, ground offsets, blue line and applicant metadata", async () => {
@@ -132,7 +148,7 @@ describe("PdfBundle smoke render", () => {
         })}
       />,
     );
-    // storeys/rooms set → floor plans included
-    expect(pageCount(pdf)).toBe(16);
+    // legacy storeys/rooms fields no longer add floor plan pages
+    expect(pageCount(pdf)).toBe(14);
   }, 30_000);
 });

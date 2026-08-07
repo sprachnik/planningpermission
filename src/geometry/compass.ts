@@ -30,3 +30,13 @@ export function elevationWind(dir: Direction, northBearingDeg: number): Wind16 {
 export function windSuffix(dir: Direction, northBearingDeg: number): string {
   return norm360(northBearingDeg) === 0 ? "" : ` (${elevationWind(dir, northBearingDeg)})`;
 }
+
+const CARDINAL_NAMES: Partial<Record<Wind16, string>> = { N: "North", E: "East", S: "South", W: "West" };
+
+/** The name an elevation sheet carries: the true compass direction it faces,
+ *  spelt out for the cardinals ("South") and abbreviated for the finer winds
+ *  ("NNE") — never the grid name with the true wind in brackets. */
+export function elevationName(dir: Direction, northBearingDeg: number): string {
+  const wind = elevationWind(dir, northBearingDeg);
+  return CARDINAL_NAMES[wind] ?? wind;
+}

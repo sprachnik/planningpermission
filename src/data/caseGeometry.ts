@@ -1,19 +1,58 @@
 import type { PlanningCase, Wing } from "./types";
+import { wingRotation } from "../geometry/faces3d";
+
+/** Canonical serialisation of the fields that shape a wing's built form —
+ *  and nothing else. Comparing raw wing JSON read editing noise as geometry
+ *  change: a rename, a reordered block list, `rotationDeg: 0` written where it
+ *  was previously unset, an `openings: []` left behind by deleting the last
+ *  window, or a chimney whose default "ridge" position became explicit. Any of
+ *  those put a spurious "Proposed geometry differs from existing" on the
+ *  schedule of a pure re-covering. So: identity/display fields (name, ids,
+ *  zOrder, storeys, roomLabels, materials) are excluded, defaults are
+ *  materialised, irrelevant fields are dropped per roof type, and unordered
+ *  lists are sorted. */
+function geometryKey(w: Wing): string {
+  const openings = (w.openings ?? [])
+    .map((o) => JSON.stringify([o.type, o.side, o.offsetM, o.widthM, o.heightM, o.sillM]))
+    .sort();
+  const rooflights = (w.rooflights ?? [])
+    .map((r) => JSON.stringify([r.plane, r.offsetM, r.upSlopeM, r.widthM, r.lengthM]))
+    .sort();
+  const chimney = w.chimney
+    ? [w.chimney.position ?? "ridge", w.chimney.offsetM, w.chimney.alongM ?? 0.9, w.chimney.acrossM ?? 0.5]
+    : null;
+  // A rear pitch equal to the front pitch *is* the symmetric roof.
+  const rearPitch =
+    w.roofType === "gable" && w.rearPitchDegrees != null && w.rearPitchDegrees !== w.pitchDegrees
+      ? w.rearPitchDegrees
+      : null;
+  return JSON.stringify([
+    w.x,
+    w.y,
+    w.widthM,
+    w.depthM,
+    w.roofType,
+    w.roofType === "flat" ? 0 : w.pitchDegrees,
+    rearPitch,
+    w.eaveHeightM,
+    w.roofType === "mono-pitch" ? (w.highEdge ?? "width-end") : null,
+    wingRotation(w),
+    w.groundOffsetM ?? 0,
+    w.isContext ?? false,
+    openings,
+    rooflights,
+    chimney,
+  ]);
+}
 
 /** True when the proposed house is geometrically identical to the existing one
  *  (pure material change) — drives the "no external alterations" annotations
- *  in the PDF. Blocks own their coverings, so material fields must be ignored
- *  here or a re-covered block would read as a geometry change; zOrder is a
- *  display-only paint order and is ignored for the same reason. */
+ *  in the PDF. Compares canonical geometry only (see `geometryKey`), keyed and
+ *  sorted by id so reordering the block list is not a change. */
 export function geometryUnchanged(planningCase: PlanningCase): boolean {
   if (!planningCase.proposedWings) return true;
-  const strip = (wings: Wing[]) =>
-    JSON.stringify(
-      wings.map(
-        ({ material: _m, materialColor: _c, materialUnchanged: _u, zOrder: _z, wallMaterial: _w, storeys: _s, roomLabels: _r, ...geometry }) => geometry,
-      ),
-    );
-  return strip(planningCase.proposedWings) === strip(planningCase.wings ?? []);
+  const key = (wings: Wing[]) => JSON.stringify(wings.map((w) => [w.id, geometryKey(w)]).sort());
+  return key(planningCase.proposedWings) === key(planningCase.wings ?? []);
 }
 
 /** Wing-level change classification for the proposed drawings: blocks that
@@ -22,14 +61,12 @@ export function wingChanges(planningCase: PlanningCase): { newIds: Set<string>; 
   const newIds = new Set<string>();
   const alteredIds = new Set<string>();
   if (!planningCase.proposedWings) return { newIds, alteredIds };
-  const geom = ({ material: _m, materialColor: _c, materialUnchanged: _u, zOrder: _z, wallMaterial: _w, storeys: _s, roomLabels: _r, ...geometry }: Wing) =>
-    JSON.stringify(geometry);
-  const existing = new Map((planningCase.wings ?? []).map((w) => [w.id, geom(w)]));
+  const existing = new Map((planningCase.wings ?? []).map((w) => [w.id, geometryKey(w)]));
   for (const w of planningCase.proposedWings) {
     if (w.isContext) continue;
     const prior = existing.get(w.id);
     if (prior === undefined) newIds.add(w.id);
-    else if (prior !== geom(w)) alteredIds.add(w.id);
+    else if (prior !== geometryKey(w)) alteredIds.add(w.id);
   }
   return { newIds, alteredIds };
 }

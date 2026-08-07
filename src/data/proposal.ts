@@ -56,6 +56,41 @@ export function caseTypeLabel(caseType: CaseType | undefined): string | undefine
 
 const norm = (s: string | undefined) => (s ?? "").trim().toLowerCase();
 
+/** "a", "a and b", "a, b and c" — lists read as prose, not as data. */
+function joinAnd(items: string[]): string {
+  if (items.length <= 1) return items[0] ?? "";
+  return `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}`;
+}
+
+const dedupe = (items: string[]) => [...new Set(items)];
+
+/** A wing's covering label as the documents print it: the block's own
+ *  material, falling back to the case-level label for its variant. */
+function wingCoveringLabel(planningCase: PlanningCase, w: Wing, proposed: boolean): string {
+  return w.material?.trim() || (proposed ? planningCase.materials.proposed : planningCase.materials.existing);
+}
+
+/** Ids of proposed blocks whose roof covering differs from their existing
+ *  counterpart. With no diverged geometry, a case-level label change means the
+ *  whole house is re-covered, so every (non-context) block qualifies. */
+export function recoveredWingIds(planningCase: PlanningCase): Set<string> {
+  const proposed = planningCase.proposedWings;
+  if (!proposed) {
+    if (norm(planningCase.materials.existing) === norm(planningCase.materials.proposed)) return new Set();
+    return new Set((planningCase.wings ?? []).filter((w) => !w.isContext).map((w) => w.id));
+  }
+  const existingById = new Map((planningCase.wings ?? []).map((w) => [w.id, w]));
+  const ids = new Set<string>();
+  for (const w of proposed) {
+    if (w.isContext || w.materialUnchanged) continue;
+    const prior = existingById.get(w.id);
+    // A brand-new block is reported as new geometry, not as a re-covering.
+    if (prior && norm(wingCoveringLabel(planningCase, w, true)) !== norm(wingCoveringLabel(planningCase, prior, false))) {
+      ids.add(w.id);
+    }
+  }
+  return ids;
+}
 
 /** True when the roof covering actually differs between existing and proposed.
  *  Blocks own their coverings, so this compares each proposed block against its
@@ -63,17 +98,34 @@ const norm = (s: string | undefined) => (s ?? "").trim().toLowerCase();
  *  case-level labels. Never assume a covering change from geometry alone —
  *  a window swap or a render change leaves geometry identical too. */
 export function coveringChanged(planningCase: PlanningCase): boolean {
-  const proposed = planningCase.proposedWings;
-  if (!proposed) return norm(planningCase.materials.existing) !== norm(planningCase.materials.proposed);
+  if (!planningCase.proposedWings) {
+    return norm(planningCase.materials.existing) !== norm(planningCase.materials.proposed);
+  }
+  return recoveredWingIds(planningCase).size > 0;
+}
+
+/** The covering labels a variant's documents should quote, derived from the
+ *  blocks (deduped, printed as entered) — the case-level `materials` fields are
+ *  hidden seeds once blocks carry their own coverings, and quoting them put a
+ *  covering the user had long since changed into the Planning Statement. */
+export function coveringSummary(planningCase: PlanningCase, proposed: boolean): string {
+  const fallback = (proposed ? planningCase.materials.proposed : planningCase.materials.existing) || "not specified";
+  // Per-wing overrides describe the wing set they belong to, so they only
+  // apply to the proposed variant once proposedWings exists.
+  if (proposed && !planningCase.proposedWings) return fallback;
+  const wings = ((proposed ? planningCase.proposedWings : undefined) ?? planningCase.wings ?? []).filter((w) => !w.isContext);
+  if (!wings.length) return fallback;
   const existingById = new Map((planningCase.wings ?? []).map((w) => [w.id, w]));
-  const covering = (w: Wing, isProposed: boolean) =>
-    norm(w.material || (isProposed ? planningCase.materials.proposed : planningCase.materials.existing));
-  return proposed.some((w) => {
-    if (w.isContext || w.materialUnchanged) return false;
-    const prior = existingById.get(w.id);
-    // A brand-new block is reported as new geometry, not as a re-covering.
-    return prior ? covering(w, true) !== covering(prior, false) : false;
-  });
+  const labels = dedupe(
+    wings.map((w) => {
+      if (proposed && w.materialUnchanged) {
+        const prior = existingById.get(w.id);
+        return (prior && wingCoveringLabel(planningCase, prior, false)) || fallback;
+      }
+      return wingCoveringLabel(planningCase, w, proposed) || fallback;
+    }),
+  );
+  return labels.join("; ") || fallback;
 }
 
 export interface ProposalSummary {
@@ -104,23 +156,33 @@ export function describeProposal(planningCase: PlanningCase): ProposalSummary {
   const coveringChanges = coveringChanged(planningCase);
   const changes = wingChanges(planningCase);
   const proposedWings = (planningCase.proposedWings ?? planningCase.wings ?? []).filter((w) => !w.isContext);
-  const changed = proposedWings.filter((w) => changes.newIds.has(w.id) || changes.alteredIds.has(w.id));
-  const existingCovering = planningCase.materials.existing || "the existing covering";
-  const proposedCovering = planningCase.materials.proposed || "the proposed covering";
+  const recovered = recoveredWingIds(planningCase);
+  const newNames = proposedWings.filter((w) => changes.newIds.has(w.id)).map((w) => w.name);
+  const alteredNames = proposedWings.filter((w) => changes.alteredIds.has(w.id)).map((w) => w.name);
+  const recoveredWings = proposedWings.filter((w) => recovered.has(w.id));
+  const keptWings = proposedWings.filter((w) => !recovered.has(w.id) && !changes.newIds.has(w.id));
+
+  // Coverings quoted exactly as the blocks state them, matching the Schedule of
+  // Materials. These labels carry proper nouns and acronyms ("Kent peg tile",
+  // "Welsh slate", "EPDM"), and lower-casing them put "kent peg tile" in a
+  // document going to a council. No case rule distinguishes those from
+  // "Concrete tile" reliably, so don't try — a capitalised material name
+  // mid-sentence reads fine.
+  const existingById = new Map((planningCase.wings ?? []).map((w) => [w.id, w]));
+  const existingCovering = recoveredWings.length
+    ? joinAnd(dedupe(recoveredWings.map((w) => wingCoveringLabel(planningCase, existingById.get(w.id) ?? w, false))))
+    : planningCase.materials.existing || "the existing covering";
+  const proposedCovering = recoveredWings.length
+    ? joinAnd(dedupe(recoveredWings.map((w) => wingCoveringLabel(planningCase, w, true))))
+    : planningCase.materials.proposed || "the proposed covering";
 
   // The concrete works, drawn from the model rather than assumed from the type.
+  // Named plainly — "alterations to Main house and Gable 3", never a
+  // semicolon-and-brackets list, which read as machine output.
   const works: string[] = [];
-  if (changed.length) {
-    works.push(
-      `alterations to ${changed.map((w) => `${w.name} (${changes.newIds.has(w.id) ? "new" : "altered"})`).join("; ")}`,
-    );
-  }
-  // Printed exactly as entered, matching the Schedule of Materials. These
-  // labels carry proper nouns and acronyms ("Kent peg tile", "Welsh slate",
-  // "EPDM"), and lower-casing them put "kent peg tile" in a document going to a
-  // council. No case rule distinguishes those from "Concrete tile" reliably, so
-  // don't try — a capitalised material name mid-sentence reads fine.
-  const coveringWork = `replacement of the roof covering from ${existingCovering} to ${proposedCovering}`;
+  if (alteredNames.length) works.push(`alterations to ${joinAnd(alteredNames)}`);
+  if (newNames.length) works.push(`the addition of ${joinAnd(newNames)}`);
+  const coveringWork = `the replacement of the roof covering from ${existingCovering} to ${proposedCovering}`;
   if (coveringChanges) works.push(coveringWork);
 
   // A stated type only names the application when the model backs it up.
@@ -130,31 +192,49 @@ export function describeProposal(planningCase: PlanningCase): ProposalSummary {
   const typeMismatch = !!type && !supported;
   const phrase = supported ? type!.phrase : undefined;
 
-  let statement: string;
-  if (phrase) {
-    // A re-roof's phrase *is* the covering change, so listing that change again
-    // as a component of itself read "consent for the replacement of the roof
-    // covering, comprising replacement of the roof covering from X to Y".
-    // Fold the detail into the headline and let anything else follow it.
-    const namesCovering = type!.requires === "covering" && coveringChanges;
-    const headline = namesCovering ? `the ${coveringWork}` : phrase;
-    const rest = namesCovering ? works.filter((w) => w !== coveringWork) : works;
-    const joined = rest.join(" and ");
-    statement = `The application seeks consent for ${headline}${
-      rest.length ? `${namesCovering ? ", together with " : ", comprising "}${joined}` : ""
-    }.`;
+  const sentences: string[] = [];
+  const namesCovering = !!phrase && type!.requires === "covering" && coveringChanges;
+  if (namesCovering) {
+    // A re-roof's phrase *is* the covering change, so fold the detail into the
+    // headline rather than restating it as a component of itself.
+    const acrossDwelling = !planningCase.proposedWings || (recoveredWings.length > 0 && keptWings.length === 0);
+    sentences.push(
+      `The application seeks consent to replace the existing roof covering${
+        acrossDwelling ? " across the dwelling" : ""
+      }, from ${existingCovering} to ${proposedCovering}.`,
+    );
+    const rest = works.filter((w) => w !== coveringWork);
+    if (rest.length) sentences.push(`The proposal also comprises ${joinAnd(rest)}.`);
+    if (recoveredWings.length && keptWings.length) {
+      sentences.push(
+        `The works affect ${joinAnd(recoveredWings.map((w) => w.name))}; the roof covering of ${joinAnd(
+          keptWings.map((w) => w.name),
+        )} is retained as existing.`,
+      );
+    }
+  } else if (phrase) {
+    sentences.push(`The application seeks consent for ${phrase}${works.length ? `, comprising ${joinAnd(works)}` : ""}.`);
   } else if (works.length) {
-    statement = `The application seeks consent for ${works.join(" and ")}.`;
+    sentences.push(`The application seeks consent for ${joinAnd(works)}.`);
   } else {
-    statement = "The application seeks consent for the works shown on the proposed drawings.";
+    sentences.push("The application seeks consent for the works shown on the proposed drawings.");
   }
-  if (!geometryChanged) {
-    statement +=
-      " No alterations are proposed to the building's footprint, height, openings or any other external element.";
+  if (!geometryChanged && coveringChanges) {
+    sentences.push(
+      "No change is proposed to the building's footprint, height, roof form, walls, windows or doors; the extent of the works is shown on the existing and proposed drawings.",
+    );
+  } else if (!geometryChanged) {
+    // Works the block model can't show (window swaps, render) may still be
+    // proposed, so claim only what the model actually establishes.
+    sentences.push(
+      "No change is proposed to the building's footprint, height or roof form; the extent of the works is shown on the existing and proposed drawings.",
+    );
   } else {
-    statement +=
-      " The extent of the works is shown on the existing and proposed drawings; unaltered elements of the house are retained as existing.";
+    sentences.push(
+      "The extent of the works is shown on the existing and proposed drawings; unaltered elements of the house are retained as existing.",
+    );
   }
+  const statement = sentences.join(" ");
 
   const elevationNote = geometryChanged
     ? "See existing drawings for the house as it stands"
@@ -169,7 +249,7 @@ export function describeProposal(planningCase: PlanningCase): ProposalSummary {
       : "Roof geometry unchanged";
 
   const scheduleNote = geometryChanged
-    ? "Proposed geometry differs from existing — refer to the proposed roof plan, floor plans and elevations for the altered elements."
+    ? "Proposed geometry differs from existing — refer to the proposed roof plan and elevations for the altered elements."
     : coveringChanges
       ? "The proposal is limited to the replacement of the roof covering. No alterations are proposed to the building's footprint, height, openings or any other external element."
       : "No alterations are proposed to the building's footprint, height, openings or roof covering; the works are as scheduled above.";

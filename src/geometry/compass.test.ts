@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { wind16, elevationWind, windSuffix } from "./compass";
+import { wind16, elevationWind, windSuffix, elevationName } from "./compass";
 
 describe("wind16", () => {
   it("maps cardinal bearings to cardinal winds", () => {
@@ -42,5 +42,19 @@ describe("windSuffix", () => {
   it("brackets the true wind otherwise", () => {
     expect(windSuffix("S", 22.5)).toBe(" (SSW)");
     expect(windSuffix("N", 45)).toBe(" (NE)");
+  });
+});
+
+describe("elevationName", () => {
+  it("spells out cardinals when plan north is true north", () => {
+    expect(elevationName("S", 0)).toBe("South");
+    expect(elevationName("N", 0)).toBe("North");
+  });
+
+  it("names the sheet by the true wind alone — never 'South (NNE)'", () => {
+    expect(elevationName("N", 22.5)).toBe("NNE");
+    expect(elevationName("S", 22.5)).toBe("SSW");
+    // a quarter-turned plot still lands on a cardinal
+    expect(elevationName("N", 90)).toBe("East");
   });
 });

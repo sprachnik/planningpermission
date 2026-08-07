@@ -72,12 +72,35 @@ describe("describeProposal", () => {
     const summary = describeProposal(
       caseWith({ caseType: "re-roof", materials: { existing: "Kent peg tile", proposed: "Welsh slate" } }),
     );
-    expect(summary.statement).toContain("the replacement of the roof covering");
+    expect(summary.statement).toContain("replace the existing roof covering across the dwelling");
     // printed as entered, matching the schedule — never lower-cased
     expect(summary.statement).toContain("Kent peg tile");
     expect(summary.statement).toContain("Welsh slate");
-    expect(summary.statement).toContain("No alterations are proposed to the building's footprint");
+    expect(summary.statement).toContain("No change is proposed to the building's footprint");
     expect(summary.roofPlanNote).toBe("Roof geometry unchanged — replacement of roof covering only");
+  });
+
+  it("quotes the blocks' own coverings, never the stale case-level seed", () => {
+    // The case-level labels are hidden seeds once blocks carry coverings —
+    // this user changed every block to Charcoal Grey but the statement kept
+    // quoting the seed's "Blue-grey composite textured slate".
+    const summary = describeProposal(
+      caseWith({
+        caseType: "re-roof",
+        materials: { existing: "Kent peg tile", proposed: "Blue-grey composite textured slate" },
+        wings: [wing({ material: "Kent peg tile" }), wing({ id: "w2", name: "Flat roof", x: 8, roofType: "flat", material: "EPDM" })],
+        proposedWings: [
+          wing({ material: "Charcoal Grey composite slate" }),
+          wing({ id: "w2", name: "Flat roof", x: 8, roofType: "flat", material: "EPDM", materialUnchanged: true }),
+        ],
+      }),
+    );
+    expect(summary.geometryChanged).toBe(false);
+    expect(summary.statement).toContain("Charcoal Grey composite slate");
+    expect(summary.statement).not.toContain("Blue-grey");
+    // no "(altered)" brackets — the works read as prose
+    expect(summary.statement).not.toMatch(/\((altered|new)\)/);
+    expect(summary.statement).toContain("The works affect Main house; the roof covering of Flat roof is retained as existing.");
   });
 
   it("describes an extension by its project type and its new blocks", () => {
@@ -88,9 +111,9 @@ describe("describeProposal", () => {
     });
     expect(summary.geometryChanged).toBe(true);
     expect(summary.statement).toContain("an extension to the dwelling");
-    expect(summary.statement).toContain("Rear extension (new)");
+    expect(summary.statement).toContain("the addition of Rear extension");
     expect(summary.roofPlanNote).toBeNull();
-    expect(summary.scheduleNote).toContain("floor plans");
+    expect(summary.scheduleNote).toContain("refer to the proposed roof plan and elevations");
   });
 
   it("falls back to the existing/proposed diff when no type is stated", () => {
@@ -114,7 +137,7 @@ describe("describeProposal", () => {
       proposedWings: [wing({ material: "Welsh slate", eaveHeightM: 5.6 })],
     });
     expect(summary.statement).toContain("a loft conversion with dormer windows");
-    expect(summary.statement).toContain("Main house (altered)");
+    expect(summary.statement).toContain("alterations to Main house");
     expect(summary.statement).toContain("replacement of the roof covering");
   });
 });
@@ -134,9 +157,9 @@ describe("describeProposal — stated type contradicted by the model", () => {
     );
     expect(result.coveringChanges).toBe(false);
     expect(result.typeMismatch).toBe(true);
-    expect(result.statement).not.toMatch(/replacement of the roof covering/i);
+    expect(result.statement).not.toMatch(/(replacement of|replace) the (existing )?roof covering/i);
     // …and still describes what genuinely changed
-    expect(result.statement).toMatch(/Main house \(altered\)/);
+    expect(result.statement).toMatch(/alterations to Main house/);
   });
 
   it("keeps the re-roof wording when the covering really does change", () => {
@@ -144,7 +167,7 @@ describe("describeProposal — stated type contradicted by the model", () => {
       caseWith({ caseType: "re-roof", materials: { existing: "Kent peg tile", proposed: "Welsh slate" } }),
     );
     expect(result.typeMismatch).toBe(false);
-    expect(result.statement).toMatch(/replacement of the roof covering/i);
+    expect(result.statement).toMatch(/replace the existing roof covering/i);
   });
 
   it("does not claim an extension when no geometry diverged", () => {

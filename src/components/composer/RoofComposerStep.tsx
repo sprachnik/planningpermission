@@ -7,7 +7,7 @@ import { SceneEditor, type EditorView } from "./ObliqueEditor";
 import { ElevationScenePreview, ObliquePreview, PlanScenePreview, RoofTypeThumbnail } from "../RoofPreviewSvg";
 import { colorForMaterial, variantRoofColor } from "../svgDraw";
 import { wingRotation, type QuarterTurn } from "../../geometry/faces3d";
-import { windSuffix } from "../../geometry/compass";
+import { elevationName, windSuffix } from "../../geometry/compass";
 import { computeRoofPlan, gableRidgeY } from "../../geometry/roof";
 import type { Direction } from "../../geometry/composite";
 
@@ -32,7 +32,6 @@ interface Props {
 
 type Variant = "existing" | "proposed";
 
-const DIR_NAMES = { N: "North", E: "East", S: "South", W: "West" } as const;
 
 const OPENING_NAMES: Record<Opening["type"], string> = {
   window: "Window",
@@ -77,7 +76,9 @@ export function RoofComposerStep({ wings, proposedWings, materials, boundary, bo
   // rotation (rotating the north-up plot CCW by R to fit the grid means
   // plan-up faces bearing R), else plan north = true north.
   const bearing = northBearingDeg ?? boundaryRotationDeg;
-  const dirLabel = (dir: Direction) => `${DIR_NAMES[dir]}${windSuffix(dir, bearing)}`;
+  // Matches the PDF sheet titles: the true compass direction, not the grid
+  // name with the wind in brackets.
+  const dirLabel = (dir: Direction) => elevationName(dir, bearing);
   /** Which projection fills the main editing viewport */
   const [mainView, setMainView] = useState<EditorView>("3d");
 
@@ -582,46 +583,16 @@ export function RoofComposerStep({ wings, proposedWings, materials, boundary, bo
                   normal depth order.
                 </small>
               </label>
-              <div className="two-col">
-                <label>
-                  Ground level (m)
-                  <input
-                    type="number"
-                    step="0.1"
-                    value={selected.groundOffsetM ?? 0}
-                    onChange={(e) => updateWing({ ...selected, groundOffsetM: Number(e.target.value) || undefined })}
-                    title="This block's ground level relative to the site datum — for stepped or sloping sites. Elevations draw a baseline per block and quoted heights include it."
-                  />
-                </label>
-                <label>
-                  Storeys
-                  <select
-                    value={selected.storeys ?? ""}
-                    onChange={(e) => updateWing({ ...selected, storeys: e.target.value === "" ? undefined : Number(e.target.value) })}
-                    title="Drives the floor plan pages. Auto guesses from the eaves height (two storeys needs about 4.4 m of wall)."
-                  >
-                    <option value="">Auto</option>
-                    <option value={1}>1</option>
-                    <option value={2}>2</option>
-                    <option value={3}>3</option>
-                  </select>
-                </label>
-              </div>
-              {Array.from({ length: selected.storeys ?? (selected.eaveHeightM >= 4.4 ? 2 : 1) }, (_, level) => (
-                <label key={level}>
-                  {["Ground floor", "First floor", "Second floor"][level] ?? `Floor ${level}`} rooms
-                  <input
-                    value={selected.roomLabels?.[level] ?? ""}
-                    placeholder="e.g. Kitchen, Living room"
-                    onChange={(e) => {
-                      const roomLabels = [...(selected.roomLabels ?? [])];
-                      roomLabels[level] = e.target.value;
-                      updateWing({ ...selected, roomLabels: roomLabels.some((r) => r?.trim()) ? roomLabels : undefined });
-                    }}
-                    title="Comma-separated room names, printed on the floor plan pages"
-                  />
-                </label>
-              ))}
+              <label>
+                Ground level (m)
+                <input
+                  type="number"
+                  step="0.1"
+                  value={selected.groundOffsetM ?? 0}
+                  onChange={(e) => updateWing({ ...selected, groundOffsetM: Number(e.target.value) || undefined })}
+                  title="This block's ground level relative to the site datum — for stepped or sloping sites. Elevations draw a baseline per block and quoted heights include it."
+                />
+              </label>
               <label>
                 <input
                   type="checkbox"

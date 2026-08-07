@@ -13,10 +13,11 @@ generally. Output: Location Plan (1:1250/1:2500 with
 red + optional blue line), Block Plan (1:200/1:500 with boundary clearance
 dimensions), Existing/Proposed Roof Plans and eight elevation sheets (all four
 compass directions × existing/proposed, one elevation per sheet, captioned
-beneath the drawing), outline Floor Plans (auto-included for extension-type
-cases), a Schedule of Materials and a generated Planning Statement — each
-drawing with an accurate scale bar, bundled as one PDF for the Planning
-Portal.
+beneath the drawing, each named by the true wind it faces — "NNE Elevation",
+never "South (NNE)"), a Schedule of Materials and a generated Planning
+Statement — each drawing with an accurate scale bar, bundled as one PDF for
+the Planning Portal. Floor plans were dropped from the set (owner decision
+Aug 2026): the outline-level pages added noise without validation value.
 
 ## Commands
 
@@ -78,7 +79,8 @@ password protection).
   follow), `zOrder` (manual painter-layer override for overlapping blocks;
   display-only, ignored by `geometryUnchanged`), `isContext` (neighbouring
   building drawn grey, excluded from schedules/heights/notes), `storeys` +
-  `roomLabels` (floor plan pages; display-only), `wallMaterial` (schedule),
+  `roomLabels` (legacy — fed the removed floor plan pages; kept so saved cases
+  parse), `wallMaterial` (schedule),
   optional chimney (on the ridge, or an external stack up a gable end), and
   its own roof covering (`material`/
   `materialColor` — blocks are independent; `materialUnchanged` marks a
@@ -87,8 +89,17 @@ password protection).
   house copies the existing coverings and each re-roofed block is changed in
   its own panel. `normaliseCase()` materialises blank block coverings from
   the case `materials` on open; those case fields survive only as hidden
-  seeds/legacy fallback labels. `geometryUnchanged()` in PdfBundle must keep
-  ignoring material fields or a re-covering reads as a geometry change. `proposedWings` holds diverged proposed
+  seeds/legacy fallback labels — **documents must quote coverings via
+  `coveringSummary()`/per-block resolution, never the case fields directly**
+  (quoting the seed printed a covering the user had long since changed).
+  `geometryUnchanged()`/`wingChanges()` (`data/caseGeometry.ts`) compare a
+  *canonical* geometry key, not raw wing JSON: names, ids-order, zOrder,
+  material fields, materialised defaults (`rotationDeg: 0`, `openings: []`,
+  rear pitch equal to front, chimney "ridge") are all ignored — raw JSON
+  comparison once stamped "Proposed geometry differs from existing" on a pure
+  re-covering because blocks had been renamed/touched in the composer. Keep it
+  canonical when adding wing fields: geometry fields join `geometryKey`,
+  display fields must not. `proposedWings` holds diverged proposed
   geometry (extensions/dormers); undefined means "same as existing" — the
   like-for-like material change. `materials` carries labels plus optional
   roof swatch colours (defaults in `components/svgDraw.ts`). `roof` is the
@@ -96,9 +107,11 @@ password protection).
   `App.tsx` on open. `northBearingDeg` is the true bearing plan-up faces
   (defaults to `composerBoundaryRotationDeg` — aligning the north-up plot
   underlay to the grid by R° CCW means plan-up faces bearing R): it drives
-  the composer's compass overlay, the "(SSW)"-style wind suffixes on
-  elevation/wall names (`geometry/compass.ts`) and the rotated PDF north
-  arrow. The plan geometry itself stays axis-aligned.
+  the composer's compass overlay, the elevation names (`elevationName()` in
+  `geometry/compass.ts` — the true wind alone, "NNE"/"South") and the rotated
+  PDF north arrow; wall names in the openings editor keep the grid name with
+  a "(SSW)"-style suffix (`windSuffix`). The plan geometry itself stays
+  axis-aligned.
 - `src/data/proposal.ts` — **how the application describes itself in words.**
   `CASE_TYPES` (labels/hints/noun phrases for the project-type picker) and
   `describeProposal()`, which produces the Planning Statement prose, the
@@ -164,7 +177,7 @@ Single source of truth: parametric wings → everything else is derived.
   `CAPTION_BAND_MM` at the foot of the content area, which scale-fitting
   callers must subtract too.
 - `src/pdf/drawingScales.ts` — **one scale per drawing family.**
-  `elevationSetScale()`/`floorPlanSetScale()` fit once across *both* variants
+  `elevationSetScale()` fits once across *both* variants
   and every direction, and the result is passed into each page. Fitting each
   sheet to its own extent is what let a proposed sheet quietly drop to 1:200
   because a new wing made it wider, while the existing sheet it is meant to be
@@ -277,9 +290,9 @@ changing.
   gable-end), asymmetric pitches, stepped ground and context neighbours, but
   still has no true valley geometry at block junctions, no angled
   (non-quarter-turn) wings and no hip-plane rooflights — see roadmap before
-  treating output as submission-ready for complex houses. Floor plans are
-  outline-level (block footprints + room labels), which most LPAs accept for
-  external-works applications.
+  treating output as submission-ready for complex houses. The set carries no
+  floor plans (removed Aug 2026); some LPAs ask for them on
+  extensions/conversions.
 
 ## Roadmap (agreed with owner)
 
@@ -289,7 +302,8 @@ changing.
    rendered in previews + PDF.
 2. ~~Gap-analysis pass (Jul 2026)~~ — DONE: block plan page with boundary
    clearances (`geometry/siteplan.ts`), outline floor plans (storeys/room
-   labels), wall/joinery/rainwater materials in the schedule, rooflights
+   labels; removed again Aug 2026 — owner judged them noise),
+   wall/joinery/rainwater materials in the schedule, rooflights
    (gable/mono), context-only neighbour blocks, per-block ground levels with
    stepped elevation baselines, blue line on the location plan, external
    gable-end chimneys, NEW/ALTERED change labels on proposed drawings,
