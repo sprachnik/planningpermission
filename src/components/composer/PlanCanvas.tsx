@@ -4,10 +4,13 @@
  * mapped back to world via the viewBox (the svg keeps its aspect ratio
  * locked to the viewBox, so the linear map in `toWorld` stays valid).
  * Placement from the palette works pointer-up on the canvas; drags capture
- * the pointer so fast mouse moves can't drop the block mid-drag.
+ * the pointer so fast mouse moves can't drop the block mid-drag. A press only
+ * becomes a drag once the pointer has travelled DRAG_THRESHOLD_PX — selecting
+ * a block must never move it (see dragThreshold.ts).
  */
 import { useRef, useState } from "react";
 import type { Wing } from "../../data/types";
+import { isDrag } from "./dragThreshold";
 import { wingsBounds, chimneyLocalRect } from "../../geometry/composite";
 import { wingPlanSize, wingRotation, rotateLocalPoint } from "../../geometry/faces3d";
 import { ROOF_FILL_LIGHT } from "../svgDraw";
@@ -68,7 +71,19 @@ const HANDLE = 0.45;
 export function PlanCanvas({ wings, boundaryOutline, showBoundary = true, compassBearingDeg, selectedId, gridSize, snap, placing, onSelect, onUpdate, onPlace }: Props) {
   const svgRef = useRef<SVGSVGElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
-  const dragRef = useRef<{ id: string; mode: "move" | "resize" | "chimney" | "chimney-size"; corner?: string; startX: number; startY: number; orig: Wing } | null>(null);
+  const dragRef = useRef<{
+    id: string;
+    mode: "move" | "resize" | "chimney" | "chimney-size";
+    corner?: string;
+    startX: number;
+    startY: number;
+    /** where the pointer went down, in screen px — the drag threshold's origin */
+    downX: number;
+    downY: number;
+    /** true once the pointer has travelled far enough to count as a drag */
+    armed: boolean;
+    orig: Wing;
+  } | null>(null);
   const [ghost, setGhost] = useState<{ x: number; y: number } | null>(null);
   /** Inline editor opened by clicking a block's dimension or name label */
   const [inlineEdit, setInlineEdit] = useState<{ id: string; px: number; py: number; kind: "dims" | "name" } | null>(null);
@@ -114,7 +129,7 @@ export function PlanCanvas({ wings, boundaryOutline, showBoundary = true, compas
     onSelect(wing.id);
     const p = toWorld(e);
     frozenViewRef.current = view;
-    dragRef.current = { id: wing.id, mode: "move", startX: p.x, startY: p.y, orig: wing };
+    dragRef.current = { id: wing.id, mode: "move", startX: p.x, startY: p.y, downX: e.clientX, downY: e.clientY, armed: false, orig: wing };
     (e.target as Element).setPointerCapture(e.pointerId);
   }
 
@@ -123,7 +138,7 @@ export function PlanCanvas({ wings, boundaryOutline, showBoundary = true, compas
     onSelect(wing.id);
     const p = toWorld(e);
     frozenViewRef.current = view;
-    dragRef.current = { id: wing.id, mode: "resize", corner, startX: p.x, startY: p.y, orig: wing };
+    dragRef.current = { id: wing.id, mode: "resize", corner, startX: p.x, startY: p.y, downX: e.clientX, downY: e.clientY, armed: false, orig: wing };
     (e.target as Element).setPointerCapture(e.pointerId);
   }
 
@@ -134,6 +149,12 @@ export function PlanCanvas({ wings, boundaryOutline, showBoundary = true, compas
     }
     const drag = dragRef.current;
     if (!drag) return;
+    // A press is a selection until the pointer proves otherwise. Everything
+    // below writes geometry, so nothing may run on a click that merely selects.
+    if (!drag.armed) {
+      if (!isDrag(drag.downX, drag.downY, e.clientX, e.clientY)) return;
+      drag.armed = true;
+    }
     const p = toWorld(e);
     const dx = p.x - drag.startX;
     const dy = p.y - drag.startY;
@@ -326,7 +347,7 @@ export function PlanCanvas({ wings, boundaryOutline, showBoundary = true, compas
                       onSelect(w.id);
                       const p = toWorld(e);
                       frozenViewRef.current = view;
-                      dragRef.current = { id: w.id, mode: "chimney", startX: p.x, startY: p.y, orig: w };
+                      dragRef.current = { id: w.id, mode: "chimney", startX: p.x, startY: p.y, downX: e.clientX, downY: e.clientY, armed: false, orig: w };
                       (e.target as Element).setPointerCapture(e.pointerId);
                     }}
                   >
@@ -344,7 +365,7 @@ export function PlanCanvas({ wings, boundaryOutline, showBoundary = true, compas
                         e.stopPropagation();
                         const p = toWorld(e);
                         frozenViewRef.current = view;
-                        dragRef.current = { id: w.id, mode: "chimney-size", startX: p.x, startY: p.y, orig: w };
+                        dragRef.current = { id: w.id, mode: "chimney-size", startX: p.x, startY: p.y, downX: e.clientX, downY: e.clientY, armed: false, orig: w };
                         (e.target as Element).setPointerCapture(e.pointerId);
                       }}
                     >

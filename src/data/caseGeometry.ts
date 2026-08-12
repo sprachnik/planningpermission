@@ -51,8 +51,41 @@ function geometryKey(w: Wing): string {
  *  sorted by id so reordering the block list is not a change. */
 export function geometryUnchanged(planningCase: PlanningCase): boolean {
   if (!planningCase.proposedWings) return true;
+  return sameGeometry(planningCase.wings ?? [], planningCase.proposedWings);
+}
+
+/** True when two wing sets describe the same built form. */
+export function sameGeometry(existing: Wing[], proposed: Wing[]): boolean {
   const key = (wings: Wing[]) => JSON.stringify(wings.map((w) => [w.id, geometryKey(w)]).sort());
-  return key(planningCase.proposedWings) === key(planningCase.wings ?? []);
+  return key(existing) === key(proposed);
+}
+
+/** Copies the existing blocks' shape and placement onto the proposed ones,
+ *  keeping everything the proposed house owns in its own right — its coverings,
+ *  names and layer order. Blocks that exist only on the proposed house (a real
+ *  extension) are left alone.
+ *
+ *  This is the repair for a case whose proposed geometry drifted by accident.
+ *  Until the drag threshold landed, clicking a block to change its covering
+ *  could re-snap it to the grid, and a set built entirely before that fix can
+ *  still be carrying a 10 cm nudge that reads as "alterations to Main house" in
+ *  the Planning Statement. "Reset to existing" would fix the geometry by
+ *  throwing away every proposed covering too — on a re-roof, the whole job. */
+export function matchProposedGeometry(existing: Wing[], proposed: Wing[]): Wing[] {
+  const existingById = new Map(existing.map((w) => [w.id, w]));
+  return proposed.map((p) => {
+    const e = existingById.get(p.id);
+    if (!e) return p;
+    return {
+      ...e,
+      name: p.name,
+      zOrder: p.zOrder,
+      material: p.material,
+      materialColor: p.materialColor,
+      materialUnchanged: p.materialUnchanged,
+      wallMaterial: p.wallMaterial,
+    };
+  });
 }
 
 /** Wing-level change classification for the proposed drawings: blocks that

@@ -277,6 +277,19 @@ changing.
   bakes a second raster copy into the image and the two land a fraction apart,
   so the Location Plan prints a doubled red line — which reads as two site
   boundaries at validation.
+- **Selecting must never move.** Both editors arm a drag on `pointerdown`,
+  which is also how a block/opening is selected, so without a travel threshold
+  (`components/composer/dragThreshold.ts`, 4 px) one pixel of click jitter ran
+  the drag maths and committed it: `doSnap` re-snapped the item to the grid,
+  moving anything sitting off it (x/y fields step 0.1 m, grid defaults to 0.5)
+  by up to a quarter cell. 10 cm is a millimetre at 1:100 — invisible on the
+  drawing, but `geometryKey` differs, so a pure re-covering printed "(altered)"
+  labels, "alterations to Main house…" in the Planning Statement and "Proposed
+  geometry differs from existing" on the schedule: a document sent to a council
+  describing works nobody proposed. Any new pointer interaction that writes
+  model state needs the same guard. `matchProposedGeometry()` repairs sets
+  already carrying a nudge ("Match shape to existing" in the composer), keeping
+  the proposed coverings — plain "Reset to existing" would discard them.
 - **Rotation is true quarter turns** (`rotationDeg` 0/90/180/270, CCW about
   the footprint, via `rotateLocalPoint` in faces3d.ts) — rotations preserve
   winding so Newell normals stay outward. The old `rotated` boolean was a

@@ -9,6 +9,7 @@
  */
 import { useRef } from "react";
 import type { Opening, Wing } from "../../data/types";
+import { isDrag } from "./dragThreshold";
 import { obliqueScene, elevationScene, wingsBounds, OBLIQUE_KX, OBLIQUE_KY } from "../../geometry/composite";
 import { wingRotation, openingTopLimit } from "../../geometry/faces3d";
 import type { Direction } from "../../geometry/composite";
@@ -87,6 +88,11 @@ export function SceneEditor({ wings, view, selectedWingId, selectedOpeningId, gr
     corner?: 0 | 1 | 2 | 3;
     startX: number;
     startY: number;
+    /** where the pointer went down, in screen px — the drag threshold's origin */
+    downX: number;
+    downY: number;
+    /** true once the pointer has travelled far enough to count as a drag */
+    armed: boolean;
     orig: Opening;
   } | null>(null);
 
@@ -147,7 +153,7 @@ export function SceneEditor({ wings, view, selectedWingId, selectedOpeningId, gr
     if (!wing || !opening) return;
     onSelectOpening(wingId, openingId);
     const p = toScene(e);
-    dragRef.current = { wingId, openingId, mode, corner, startX: p.x, startY: p.y, orig: opening };
+    dragRef.current = { wingId, openingId, mode, corner, startX: p.x, startY: p.y, downX: e.clientX, downY: e.clientY, armed: false, orig: opening };
     (e.target as Element).setPointerCapture(e.pointerId);
   }
 
@@ -156,6 +162,12 @@ export function SceneEditor({ wings, view, selectedWingId, selectedOpeningId, gr
     if (!drag) return;
     const wing = wings.find((w) => w.id === drag.wingId);
     if (!wing) return;
+    // Selecting an opening must not move it: everything below writes geometry,
+    // and `doSnap`/`clamp` rewrite an opening even on a zero-distance drag.
+    if (!drag.armed) {
+      if (!isDrag(drag.downX, drag.downY, e.clientX, e.clientY)) return;
+      drag.armed = true;
+    }
     const p = toScene(e);
     const d = { x: p.x - drag.startX, y: p.y - drag.startY };
 

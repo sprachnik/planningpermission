@@ -10,6 +10,7 @@ import { wingRotation, type QuarterTurn } from "../../geometry/faces3d";
 import { elevationName, windSuffix } from "../../geometry/compass";
 import { computeRoofPlan, gableRidgeY } from "../../geometry/roof";
 import type { Direction } from "../../geometry/composite";
+import { sameGeometry, matchProposedGeometry } from "../../data/caseGeometry";
 
 interface Props {
   wings: Wing[];
@@ -359,6 +360,18 @@ export function RoofComposerStep({ wings, proposedWings, materials, boundary, bo
             data-tooltip="Discard proposed changes and copy the existing house again, coverings included"
           >
             Reset to existing
+          </button>
+        )}
+        {/* Only offered when the shapes actually differ — on a re-covering that
+            is usually an accidental nudge, and resetting outright would throw
+            away every proposed covering with it. */}
+        {variant === "proposed" && proposedWings && !sameGeometry(wings, proposedWings) && (
+          <button
+            className="secondary outline"
+            onClick={() => onChange({ proposedWings: matchProposedGeometry(wings, proposedWings) })}
+            data-tooltip="Puts the proposed blocks back to the existing shapes and positions, keeping the proposed coverings — use if the shapes drifted by accident"
+          >
+            Match shape to existing
           </button>
         )}
         <small className="muted">

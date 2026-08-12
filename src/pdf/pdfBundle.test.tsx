@@ -3,7 +3,7 @@ import { renderToBuffer } from "@react-pdf/renderer";
 import type { PlanningCase } from "../data/types";
 import { PdfBundle } from "./PdfBundle";
 import { elevationSetScale } from "./drawingScales";
-import { geometryUnchanged } from "../data/caseGeometry";
+import { geometryUnchanged, sameGeometry, matchProposedGeometry } from "../data/caseGeometry";
 
 function sampleCase(overrides: Partial<PlanningCase> = {}): PlanningCase {
   return {
@@ -151,4 +151,37 @@ describe("PdfBundle smoke render", () => {
     // legacy storeys/rooms fields no longer add floor plan pages
     expect(pageCount(pdf)).toBe(14);
   }, 30_000);
+});
+
+/** The composer arms a drag on pointerdown, because that is also how a block is
+ *  selected — so one pixel of jitter while clicking a block to change its
+ *  covering used to re-snap it to the grid. A 10 cm nudge is invisible at 1:100
+ *  but not to `geometryKey`, so a pure re-covering printed "(altered)" labels,
+ *  "alterations to Main house…" and "Proposed geometry differs from existing".
+ *  The threshold in dragThreshold.ts stops it happening; this covers the repair
+ *  for sets already carrying the nudge. */
+describe("matchProposedGeometry", () => {
+  const base = sampleCase();
+  const nudged = () =>
+    base.wings!.map((w, i) =>
+      i === 0
+        ? { ...w, x: w.x + 0.1, material: "Grey slate", materialColor: "#64707d", name: "Main house" }
+        : { ...w, material: "Grey slate" },
+    );
+
+  it("restores the existing shapes while keeping the proposed coverings", () => {
+    const proposed = nudged();
+    expect(sameGeometry(base.wings!, proposed)).toBe(false);
+    const repaired = matchProposedGeometry(base.wings!, proposed);
+    expect(sameGeometry(base.wings!, repaired)).toBe(true);
+    // the covering is the whole point of the case — it must survive the repair
+    expect(repaired.map((w) => w.material)).toEqual(["Grey slate", "Grey slate"]);
+    expect(repaired[0].materialColor).toBe("#64707d");
+  });
+
+  it("leaves a genuinely new proposed block alone", () => {
+    const extension = { id: "w9", name: "Rear extension", x: 0, y: 6, widthM: 5, depthM: 4, roofType: "flat" as const, pitchDegrees: 0, eaveHeightM: 2.6 };
+    const repaired = matchProposedGeometry(base.wings!, [...nudged(), extension]);
+    expect(repaired.find((w) => w.id === "w9")).toEqual(extension);
+  });
 });
