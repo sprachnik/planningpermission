@@ -142,8 +142,9 @@ export interface ProposalSummary {
   elevationNote: string;
   /** Annotation for the proposed roof plan, when geometry is unchanged */
   roofPlanNote: string | null;
-  /** Closing note under the Schedule of Materials */
-  scheduleNote: string;
+  /** Closing note under the Schedule of Materials; null when there is nothing
+   *  the schedule should be asserting on its own account. */
+  scheduleNote: string | null;
 }
 
 /** Describes the proposal in words, from the stated project type plus what
@@ -159,6 +160,19 @@ export function describeProposal(planningCase: PlanningCase): ProposalSummary {
   const recovered = recoveredWingIds(planningCase);
   const newNames = proposedWings.filter((w) => changes.newIds.has(w.id)).map((w) => w.name);
   const alteredNames = proposedWings.filter((w) => changes.alteredIds.has(w.id)).map((w) => w.name);
+  // Which blocks the works actually touch. A block whose covering is being
+  // replaced is part of the works even when its shape is untouched — the
+  // proposed roof plan has badged those ALTERED for a while, but this list was
+  // still geometry-only, so a re-covered block disappeared from the statement's
+  // opening sentence while sitting there labelled ALTERED on the drawing.
+  // Only folded in where the works are mixed: on a pure re-covering the
+  // covering clause below already says it, and "alterations to Main house and
+  // the replacement of the roof covering" would imply works beyond the re-roof.
+  const affectedNames = geometryChanged
+    ? proposedWings
+        .filter((w) => !changes.newIds.has(w.id) && (changes.alteredIds.has(w.id) || recovered.has(w.id)))
+        .map((w) => w.name)
+    : alteredNames;
   const recoveredWings = proposedWings.filter((w) => recovered.has(w.id));
   const keptWings = proposedWings.filter((w) => !recovered.has(w.id) && !changes.newIds.has(w.id));
 
@@ -179,11 +193,19 @@ export function describeProposal(planningCase: PlanningCase): ProposalSummary {
   // The concrete works, drawn from the model rather than assumed from the type.
   // Named plainly — "alterations to Main house and Gable 3", never a
   // semicolon-and-brackets list, which read as machine output.
-  const works: string[] = [];
-  if (alteredNames.length) works.push(`alterations to ${joinAnd(alteredNames)}`);
-  if (newNames.length) works.push(`the addition of ${joinAnd(newNames)}`);
   const coveringWork = `the replacement of the roof covering from ${existingCovering} to ${proposedCovering}`;
-  if (coveringChanges) works.push(coveringWork);
+  const buildWorks = (altered: string[]): string[] => {
+    const items: string[] = [];
+    if (altered.length) items.push(`alterations to ${joinAnd(altered)}`);
+    if (newNames.length) items.push(`the addition of ${joinAnd(newNames)}`);
+    if (coveringChanges) items.push(coveringWork);
+    return items;
+  };
+  const works = buildWorks(affectedNames);
+  // A re-roof headline *is* the covering change, so the works listed beside it
+  // must be geometry only — naming a re-covered block there restates the
+  // headline as a component of itself.
+  const geometryWorks = buildWorks(alteredNames);
 
   // A stated type only names the application when the model backs it up.
   const type = CASE_TYPES.find((t) => t.value === planningCase.caseType);
@@ -203,7 +225,7 @@ export function describeProposal(planningCase: PlanningCase): ProposalSummary {
         acrossDwelling ? " across the dwelling" : ""
       }, from ${existingCovering} to ${proposedCovering}.`,
     );
-    const rest = works.filter((w) => w !== coveringWork);
+    const rest = geometryWorks.filter((w) => w !== coveringWork);
     if (rest.length) sentences.push(`The proposal also comprises ${joinAnd(rest)}.`);
     if (recoveredWings.length && keptWings.length) {
       sentences.push(
@@ -248,8 +270,15 @@ export function describeProposal(planningCase: PlanningCase): ProposalSummary {
       ? "Roof geometry unchanged — replacement of roof covering only"
       : "Roof geometry unchanged";
 
+  // Nothing on a materials schedule should be making claims about geometry.
+  // "Proposed geometry differs from existing — refer to the proposed roof plan
+  // and elevations for the altered elements." was printed here under a table of
+  // materials, restating what the drawings themselves carry, and read as wrong
+  // on a real submission. Removed by owner decision (Aug 2026). The two
+  // remaining notes stay: they *limit* the application ("no alterations are
+  // proposed to…"), which is a statement a schedule is the right place for.
   const scheduleNote = geometryChanged
-    ? "Proposed geometry differs from existing — refer to the proposed roof plan and elevations for the altered elements."
+    ? null
     : coveringChanges
       ? "The proposal is limited to the replacement of the roof covering. No alterations are proposed to the building's footprint, height, openings or any other external element."
       : "No alterations are proposed to the building's footprint, height, openings or roof covering; the works are as scheduled above.";

@@ -294,12 +294,22 @@ function ElevationsPage({
     notes.push("Stepped baselines indicate ground levels relative to the site datum");
   }
   if (proposed) {
-    if (!geometryUnchanged(planningCase)) {
-      const changes = wingChanges(planningCase);
-      const named = wings.filter((w) => changes.newIds.has(w.id) || changes.alteredIds.has(w.id));
-      if (named.length > 0) {
-        notes.push(`Alterations: ${named.map((w) => `${w.name} (${changes.newIds.has(w.id) ? "new" : "altered"})`).join("; ")}`);
-      }
+    const changes = wingChanges(planningCase);
+    // A re-covered block belongs in this list even when its shape is untouched.
+    // It was geometry-only, so a block being stripped and re-tiled was left out
+    // of the alterations footnote while the roof plan badged it ALTERED — the
+    // two sheets of the same set disagreed about the extent of the works.
+    const recovered = recoveredWingIds(planningCase);
+    const named = wings.filter((w) => changes.newIds.has(w.id) || changes.alteredIds.has(w.id) || recovered.has(w.id));
+    // …but on a whole-house re-covering with nothing reshaped, naming every
+    // block just restates the covering note that follows.
+    const wholeHouseRecovering = geometryUnchanged(planningCase) && named.length === wings.filter((w) => !w.isContext).length;
+    if (named.length > 0 && !wholeHouseRecovering) {
+      notes.push(
+        `Alterations: ${named
+          .map((w) => `${w.name} (${changes.newIds.has(w.id) ? "new" : changes.alteredIds.has(w.id) ? "altered" : "re-covered"})`)
+          .join("; ")}`,
+      );
     }
     notes.push(describeProposal(planningCase).elevationNote);
   } else {
@@ -614,6 +624,18 @@ function SchedulePage({ planningCase, meta }: { planningCase: PlanningCase; meta
   // "covering unchanged" renders as "Kent peg tile (unchanged)" against a bare
   // "Kent peg tile", so string-comparing the cells read as a change.
   const coveringChanges = proposal.coveringChanges;
+  // Only what the schedule itself is entitled to say — the geometry note that
+  // used to lead here is gone (see describeProposal), so the stripping sentence
+  // may now be the whole note, or there may be no note at all.
+  const scheduleNote =
+    [
+      proposal.scheduleNote,
+      coveringChanges
+        ? "The existing roof covering will be stripped and disposed of appropriately; the replacement covering is as scheduled above."
+        : null,
+    ]
+      .filter(Boolean)
+      .join(" ") || null;
   const rows: [string, string, string][] = [
     ["Roof covering", coveringCell(false), coveringCell(true)],
     ["Maximum building height", heightCell(false), heightCell(true) === heightCell(false) ? "Unchanged" : heightCell(true)],
@@ -643,10 +665,7 @@ function SchedulePage({ planningCase, meta }: { planningCase: PlanningCase; meta
             <Text style={scheduleStyles.cell}>{proposed}</Text>
           </View>
         ))}
-        <Text style={scheduleStyles.note}>
-          {proposal.scheduleNote}
-          {coveringChanges ? " The existing roof covering will be stripped and disposed of appropriately; the replacement covering is as scheduled above." : ""}
-        </Text>
+        {scheduleNote && <Text style={scheduleStyles.note}>{scheduleNote}</Text>}
       </View>
       <Text style={scheduleStyles.stamp}>
         Drawing {meta.drawingNumber} · Rev A · {meta.dateISO} · Purpose: PLANNING · Not to scale

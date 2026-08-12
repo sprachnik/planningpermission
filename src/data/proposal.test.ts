@@ -113,7 +113,8 @@ describe("describeProposal", () => {
     expect(summary.statement).toContain("an extension to the dwelling");
     expect(summary.statement).toContain("the addition of Rear extension");
     expect(summary.roofPlanNote).toBeNull();
-    expect(summary.scheduleNote).toContain("refer to the proposed roof plan and elevations");
+    // The schedule says nothing about geometry — see the note below.
+    expect(summary.scheduleNote).toBeNull();
   });
 
   it("falls back to the existing/proposed diff when no type is stated", () => {
@@ -183,6 +184,77 @@ describe("describeProposal — stated type contradicted by the model", () => {
     const result = describeProposal(caseWith({ caseType: "other" }));
     expect(result.typeMismatch).toBe(false);
     expect(result.statement).toMatch(/external alterations to the dwelling/i);
+  });
+});
+
+/** Reviewing a real generated set (Aug 2026): a block that was being stripped
+ *  and re-tiled, but not reshaped, was badged ALTERED on the proposed roof plan
+ *  and then left out of the statement's opening sentence and the elevation
+ *  footnote — both of which listed geometry changes only. Sheets in one set
+ *  disagreeing about the extent of the works is a validation problem. */
+describe("describeProposal — blocks affected by the works", () => {
+  const mixedCase = () =>
+    caseWith({
+      materials: { existing: "Kent peg tile", proposed: "Charcoal Grey composite slate" },
+      wings: [
+        wing({ material: "Kent peg tile" }),
+        wing({ id: "w2", name: "Front lower roof", x: 8, material: "Kent peg tile" }),
+        wing({ id: "w3", name: "Flat roof", x: 16, roofType: "flat", material: "Black roof felt" }),
+      ],
+      proposedWings: [
+        // reshaped and re-covered
+        wing({ material: "Charcoal Grey composite slate", eaveHeightM: 5.4 }),
+        // re-covered only — the block that went missing
+        wing({ id: "w2", name: "Front lower roof", x: 8, material: "Charcoal Grey composite slate" }),
+        // untouched
+        wing({ id: "w3", name: "Flat roof", x: 16, roofType: "flat", material: "Black roof felt" }),
+      ],
+    });
+
+  it("names a re-covered block alongside the reshaped ones", () => {
+    const summary = describeProposal(mixedCase());
+    expect(summary.geometryChanged).toBe(true);
+    expect(summary.statement).toContain("alterations to Main house and Front lower roof");
+    expect(summary.statement).toContain("replacement of the roof covering");
+    // the block whose covering is genuinely retained stays out of it
+    expect(summary.statement).not.toContain("Flat roof");
+  });
+
+  it("does not restate the re-covering as a separate alteration under a re-roof headline", () => {
+    // caseType re-roof leads with the covering change; listing "alterations to
+    // Front lower roof" beside it would describe the headline twice.
+    const summary = describeProposal({ ...mixedCase(), caseType: "re-roof" });
+    expect(summary.statement).toMatch(/replace the existing roof covering/i);
+    expect(summary.statement).toContain("The proposal also comprises alterations to Main house.");
+    expect(summary.statement).not.toContain("alterations to Main house and Front lower roof");
+  });
+
+  it("leaves a pure re-covering described as exactly that", () => {
+    // No geometry change: "alterations to Main house" here would imply works
+    // beyond the re-roof the covering clause already describes.
+    const summary = describeProposal(caseWith({ materials: { existing: "Kent peg tile", proposed: "Welsh slate" } }));
+    expect(summary.statement).not.toMatch(/alterations to/);
+    expect(summary.statement).toContain("replacement of the roof covering");
+  });
+});
+
+/** The Schedule of Materials used to close with "Proposed geometry differs from
+ *  existing — refer to the proposed roof plan and elevations for the altered
+ *  elements." Owner decision (Aug 2026): a materials schedule does not make
+ *  claims about geometry. */
+describe("describeProposal — the schedule's closing note", () => {
+  it("asserts nothing about geometry when the geometry has changed", () => {
+    const summary = describeProposal(
+      caseWith({ caseType: "extension", proposedWings: [wing(), wing({ id: "w2", name: "Rear extension", x: 8 })] }),
+    );
+    expect(summary.geometryChanged).toBe(true);
+    expect(summary.scheduleNote).toBeNull();
+  });
+
+  it("keeps the notes that limit the application", () => {
+    const recovering = describeProposal(caseWith({ materials: { existing: "Kent peg tile", proposed: "Welsh slate" } }));
+    expect(recovering.scheduleNote).toContain("limited to the replacement of the roof covering");
+    expect(describeProposal(caseWith()).scheduleNote).toContain("No alterations are proposed");
   });
 });
 
