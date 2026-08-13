@@ -160,21 +160,9 @@ export function describeProposal(planningCase: PlanningCase): ProposalSummary {
   const recovered = recoveredWingIds(planningCase);
   const newNames = proposedWings.filter((w) => changes.newIds.has(w.id)).map((w) => w.name);
   const alteredNames = proposedWings.filter((w) => changes.alteredIds.has(w.id)).map((w) => w.name);
-  // Which blocks the works actually touch. A block whose covering is being
-  // replaced is part of the works even when its shape is untouched — the
-  // proposed roof plan has badged those ALTERED for a while, but this list was
-  // still geometry-only, so a re-covered block disappeared from the statement's
-  // opening sentence while sitting there labelled ALTERED on the drawing.
-  // Only folded in where the works are mixed: on a pure re-covering the
-  // covering clause below already says it, and "alterations to Main house and
-  // the replacement of the roof covering" would imply works beyond the re-roof.
-  const affectedNames = geometryChanged
-    ? proposedWings
-        .filter((w) => !changes.newIds.has(w.id) && (changes.alteredIds.has(w.id) || recovered.has(w.id)))
-        .map((w) => w.name)
-    : alteredNames;
   const recoveredWings = proposedWings.filter((w) => recovered.has(w.id));
   const keptWings = proposedWings.filter((w) => !recovered.has(w.id) && !changes.newIds.has(w.id));
+  const keptNames = keptWings.map((w) => w.name);
 
   // Coverings quoted exactly as the blocks state them, matching the Schedule of
   // Materials. These labels carry proper nouns and acronyms ("Kent peg tile",
@@ -193,19 +181,23 @@ export function describeProposal(planningCase: PlanningCase): ProposalSummary {
   // The concrete works, drawn from the model rather than assumed from the type.
   // Named plainly — "alterations to Main house and Gable 3", never a
   // semicolon-and-brackets list, which read as machine output.
-  const coveringWork = `the replacement of the roof covering from ${existingCovering} to ${proposedCovering}`;
-  const buildWorks = (altered: string[]): string[] => {
-    const items: string[] = [];
-    if (altered.length) items.push(`alterations to ${joinAnd(altered)}`);
-    if (newNames.length) items.push(`the addition of ${joinAnd(newNames)}`);
-    if (coveringChanges) items.push(coveringWork);
-    return items;
-  };
-  const works = buildWorks(affectedNames);
-  // A re-roof headline *is* the covering change, so the works listed beside it
-  // must be geometry only — naming a re-covered block there restates the
-  // headline as a component of itself.
-  const geometryWorks = buildWorks(alteredNames);
+  //
+  // The covering clause carries its own scope, so the works beside it are
+  // geometry only. "consent for alterations to Main house, Gable 3, Gable 5 …
+  // and the replacement of the roof covering" read as two separate jobs on one
+  // roof (owner review, Aug 2026) — and on a re-covering it named the very
+  // blocks the covering clause was already about. Naming the re-covered blocks
+  // *inside* that clause keeps them in the opening sentence (where they must
+  // be: the roof plan badges them ALTERED) without inventing a second work item.
+  const coveringScope =
+    recoveredWings.length && keptNames.length
+      ? ` to ${joinAnd(recoveredWings.map((w) => w.name))}`
+      : " across the dwelling";
+  const coveringWork = `the replacement of the roof covering${coveringScope}, from ${existingCovering} to ${proposedCovering}`;
+  const works: string[] = [];
+  if (alteredNames.length) works.push(`alterations to ${joinAnd(alteredNames)}`);
+  if (newNames.length) works.push(`the addition of ${joinAnd(newNames)}`);
+  if (coveringChanges) works.push(coveringWork);
 
   // A stated type only names the application when the model backs it up.
   const type = CASE_TYPES.find((t) => t.value === planningCase.caseType);
@@ -219,21 +211,9 @@ export function describeProposal(planningCase: PlanningCase): ProposalSummary {
   if (namesCovering) {
     // A re-roof's phrase *is* the covering change, so fold the detail into the
     // headline rather than restating it as a component of itself.
-    const acrossDwelling = !planningCase.proposedWings || (recoveredWings.length > 0 && keptWings.length === 0);
-    sentences.push(
-      `The application seeks consent to replace the existing roof covering${
-        acrossDwelling ? " across the dwelling" : ""
-      }, from ${existingCovering} to ${proposedCovering}.`,
-    );
-    const rest = geometryWorks.filter((w) => w !== coveringWork);
+    sentences.push(`The application seeks consent for ${coveringWork}.`);
+    const rest = works.filter((w) => w !== coveringWork);
     if (rest.length) sentences.push(`The proposal also comprises ${joinAnd(rest)}.`);
-    if (recoveredWings.length && keptWings.length) {
-      sentences.push(
-        `The works affect ${joinAnd(recoveredWings.map((w) => w.name))}; the roof covering of ${joinAnd(
-          keptWings.map((w) => w.name),
-        )} is retained as existing.`,
-      );
-    }
   } else if (phrase) {
     sentences.push(`The application seeks consent for ${phrase}${works.length ? `, comprising ${joinAnd(works)}` : ""}.`);
   } else if (works.length) {
@@ -242,8 +222,17 @@ export function describeProposal(planningCase: PlanningCase): ProposalSummary {
     sentences.push("The application seeks consent for the works shown on the proposed drawings.");
   }
   if (!geometryChanged && coveringChanges) {
+    // Two plain sentences, not one long negative list. The scope is closed
+    // first — the reader has just been told what the works are, so "no other
+    // alterations" is the sentence that answers their next question — then the
+    // retained elements are named, roofs first: on a partial re-roof, "which
+    // roofs are you *not* touching?" is what a validator checks the drawings
+    // for.
+    sentences.push("No other alterations are proposed; the building's footprint, height and roof form are unchanged.");
     sentences.push(
-      "No change is proposed to the building's footprint, height, roof form, walls, windows or doors; the extent of the works is shown on the existing and proposed drawings.",
+      keptNames.length
+        ? `The ${joinAnd(keptNames)} covering${keptNames.length > 1 ? "s" : ""}, walls, windows, doors and rainwater goods are retained as existing.`
+        : "The walls, windows, doors and rainwater goods are retained as existing.",
     );
   } else if (!geometryChanged) {
     // Works the block model can't show (window swaps, render) may still be
@@ -255,6 +244,11 @@ export function describeProposal(planningCase: PlanningCase): ProposalSummary {
     sentences.push(
       "The extent of the works is shown on the existing and proposed drawings; unaltered elements of the house are retained as existing.",
     );
+    // Under a mixed scheme the covering clause names only the roofs being
+    // replaced, so the ones keeping their covering still need saying.
+    if (coveringChanges && keptNames.length) {
+      sentences.push(`The roof covering of ${joinAnd(keptNames)} is retained as existing.`);
+    }
   }
   const statement = sentences.join(" ");
 

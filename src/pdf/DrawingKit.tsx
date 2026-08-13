@@ -42,9 +42,14 @@ const styles = StyleSheet.create({
     color: "#333",
   },
   noteText: {
+    // Each note is a separate statement (coverings, heights, extent of works),
+    // and several wrap to three or four lines at this width. With a 1pt gap the
+    // wraps and the breaks between notes looked identical, so the whole column
+    // read as one run-on paragraph. Half a line of air separates them without
+    // costing the height a blank line would.
     fontSize: 6.5,
     color: "#333",
-    marginBottom: 1,
+    marginBottom: 4,
   },
   stampText: {
     fontSize: 6.5,

@@ -123,6 +123,15 @@ password protection).
   replacement of the roof covering" for *any* unchanged-geometry case
   (window swaps, render, solar). Never reintroduce that inference: unchanged
   geometry means unchanged geometry, nothing more.
+  **One work item per clause.** The covering clause carries its own scope
+  ("the replacement of the roof covering to Main house and Gable 3, from X to
+  Y"), so the works listed beside it are geometry only, and a re-covered block
+  is never also named under "alterations to …": doing both read as two separate
+  jobs on one roof, and on a re-covering it named the same blocks twice. The
+  elevation footnote follows suit — a covering-only job prints one line
+  ("Alterations: roof covering replaced as scheduled above. No other changes
+  proposed.") rather than a block-by-block roll-call restating the coverings
+  note above it. Owner review, Aug 2026.
   The same trap has a second door, closed by `CASE_TYPES[].requires`: a stated
   `caseType` is a statement of intent, not evidence. Picking "re-roof" and
   leaving both coverings identical once produced a statement asking consent
@@ -289,7 +298,10 @@ changing.
   describing works nobody proposed. Any new pointer interaction that writes
   model state needs the same guard. `matchProposedGeometry()` repairs sets
   already carrying a nudge ("Match shape to existing" in the composer), keeping
-  the proposed coverings — plain "Reset to existing" would discard them.
+  the proposed coverings — plain "Reset to existing" would discard them. A
+  `re-roof` case clears the project-type check on the covering alone, so
+  diverged geometry used to reach the PDF with nothing flagged; the Download
+  step now calls it out and points at that repair.
 - **Rotation is true quarter turns** (`rotationDeg` 0/90/180/270, CCW about
   the footprint, via `rotateLocalPoint` in faces3d.ts) — rotations preserve
   winding so Newell normals stay outward. The old `rotated` boolean was a

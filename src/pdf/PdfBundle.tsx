@@ -294,24 +294,35 @@ function ElevationsPage({
     notes.push("Stepped baselines indicate ground levels relative to the site datum");
   }
   if (proposed) {
-    const changes = wingChanges(planningCase);
-    // A re-covered block belongs in this list even when its shape is untouched.
-    // It was geometry-only, so a block being stripped and re-tiled was left out
-    // of the alterations footnote while the roof plan badged it ALTERED — the
-    // two sheets of the same set disagreed about the extent of the works.
-    const recovered = recoveredWingIds(planningCase);
-    const named = wings.filter((w) => changes.newIds.has(w.id) || changes.alteredIds.has(w.id) || recovered.has(w.id));
-    // …but on a whole-house re-covering with nothing reshaped, naming every
-    // block just restates the covering note that follows.
-    const wholeHouseRecovering = geometryUnchanged(planningCase) && named.length === wings.filter((w) => !w.isContext).length;
-    if (named.length > 0 && !wholeHouseRecovering) {
-      notes.push(
-        `Alterations: ${named
-          .map((w) => `${w.name} (${changes.newIds.has(w.id) ? "new" : changes.alteredIds.has(w.id) ? "altered" : "re-covered"})`)
-          .join("; ")}`,
-      );
+    const proposal = describeProposal(planningCase);
+    if (!proposal.geometryChanged && proposal.coveringChanges) {
+      // A covering-only job needs one line, not a roll-call. Listing every
+      // block as "(re-covered)" repeated the coverings note directly above it
+      // name for name, and mixing in "(altered)" — which some blocks picked up
+      // from an accidental nudge — made a re-roof look like a remodelling
+      // (owner review, Aug 2026). The coverings note is the schedule of which
+      // roof gets what; this line says only that nothing else moves.
+      notes.push("Alterations: roof covering replaced as scheduled above. No other changes proposed.");
+    } else if (proposal.geometryChanged) {
+      const changes = wingChanges(planningCase);
+      // A re-covered block belongs in this list even when its shape is
+      // untouched. It was geometry-only, so a block being stripped and re-tiled
+      // was left out of the alterations footnote while the roof plan badged it
+      // ALTERED — two sheets of one set disagreeing about the extent of the
+      // works.
+      const recovered = recoveredWingIds(planningCase);
+      const named = wings.filter((w) => changes.newIds.has(w.id) || changes.alteredIds.has(w.id) || recovered.has(w.id));
+      if (named.length > 0) {
+        notes.push(
+          `Alterations: ${named
+            .map((w) => `${w.name} (${changes.newIds.has(w.id) ? "new" : changes.alteredIds.has(w.id) ? "altered" : "re-covered"})`)
+            .join("; ")}`,
+        );
+      }
+      notes.push(proposal.elevationNote);
+    } else {
+      notes.push(proposal.elevationNote);
     }
-    notes.push(describeProposal(planningCase).elevationNote);
   } else {
     notes.push("Walls, windows and doors as existing");
   }
@@ -642,7 +653,13 @@ function SchedulePage({ planningCase, meta }: { planningCase: PlanningCase; meta
     [
       "Ridge / hip / verge details",
       "Existing",
-      coveringChanges ? "To suit proposed roof covering, to match existing appearance" : "Unchanged",
+      // "To suit proposed roof covering, to match existing appearance" left the
+      // reader guessing at both halves — matching *what*, and is the roof line
+      // itself changing? Say which is being replaced (the components) and which
+      // is not (the lines they sit on), and what "match" refers to.
+      coveringChanges
+        ? "New components to suit the proposed roof covering, in a matching colour. Ridge line, hip lines and verge profiles unchanged."
+        : "Unchanged",
     ],
     ["Walls", wallsCell(false), wallsCell(true)],
     ["Windows & doors", planningCase.joineryMaterial?.trim() || "Existing", planningCase.joineryMaterial?.trim() || (unchanged ? "Unchanged" : "See proposed drawings")],

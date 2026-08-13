@@ -440,6 +440,13 @@ export default function App() {
   // roof is the subject and the walls are explicitly unaltered. Nagging there
   // would be asking for work the application doesn't need.
   const pureRecovering = active.caseType === "re-roof" && !describeProposal(active).geometryChanged;
+  // A re-roof clears the type check on the covering alone, so diverged geometry
+  // passed silently: a case carrying an accidental nudge (the pre-threshold
+  // select-moves-block bug) downloaded a set whose statement asked for consent
+  // for "alterations to Main house…" — works nobody proposed — with nothing
+  // here to catch it. Not an error in itself: a re-roof can genuinely include a
+  // rebuilt gable.
+  const recoveringWithGeometry = hasBlocks && active.caseType === "re-roof" && !pureRecovering;
   const noOpenings =
     hasBlocks &&
     !pureRecovering &&
@@ -659,6 +666,15 @@ export default function App() {
                   Project type matches the model — you chose &ldquo;{caseTypeLabel(active.caseType)}&rdquo;, but the drawings don&rsquo;t
                   show it. The documents describe what you actually modelled instead; change the type via &ldquo;Edit details&rdquo;
                   or finish the changes on Building &amp; Elevations.
+                </li>
+              )}
+              {recoveringWithGeometry && (
+                <li className="todo-item">
+                  <span className="tick todo">✓</span>
+                  Shapes match the existing house — this is a roof covering replacement, but some proposed blocks differ in
+                  shape or position from the existing ones, so the drawings and Planning Statement describe alterations too.
+                  If that&rsquo;s intended, ignore this; if the shapes drifted while you were editing, use &ldquo;Match shape to
+                  existing&rdquo; on Building &amp; Elevations (proposed view) — it keeps your proposed coverings.
                 </li>
               )}
               {swatchesMatch && (

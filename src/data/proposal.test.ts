@@ -72,11 +72,12 @@ describe("describeProposal", () => {
     const summary = describeProposal(
       caseWith({ caseType: "re-roof", materials: { existing: "Kent peg tile", proposed: "Welsh slate" } }),
     );
-    expect(summary.statement).toContain("replace the existing roof covering across the dwelling");
+    expect(summary.statement).toContain("consent for the replacement of the roof covering across the dwelling");
     // printed as entered, matching the schedule — never lower-cased
     expect(summary.statement).toContain("Kent peg tile");
     expect(summary.statement).toContain("Welsh slate");
-    expect(summary.statement).toContain("No change is proposed to the building's footprint");
+    expect(summary.statement).toContain("No other alterations are proposed");
+    expect(summary.statement).toContain("The walls, windows, doors and rainwater goods are retained as existing.");
     expect(summary.roofPlanNote).toBe("Roof geometry unchanged — replacement of roof covering only");
   });
 
@@ -100,7 +101,8 @@ describe("describeProposal", () => {
     expect(summary.statement).not.toContain("Blue-grey");
     // no "(altered)" brackets — the works read as prose
     expect(summary.statement).not.toMatch(/\((altered|new)\)/);
-    expect(summary.statement).toContain("The works affect Main house; the roof covering of Flat roof is retained as existing.");
+    expect(summary.statement).toContain("the replacement of the roof covering to Main house, from Kent peg tile");
+    expect(summary.statement).toContain("The Flat roof covering, walls, windows, doors and rainwater goods are retained as existing.");
   });
 
   it("describes an extension by its project type and its new blocks", () => {
@@ -121,7 +123,7 @@ describe("describeProposal", () => {
     const summary = describeProposal(
       caseWith({ materials: { existing: "Kent peg tile", proposed: "Welsh slate" } }),
     );
-    expect(summary.statement).toContain("replacement of the roof covering from Kent peg tile to Welsh slate");
+    expect(summary.statement).toContain("replacement of the roof covering across the dwelling, from Kent peg tile to Welsh slate");
   });
 
   it("stays honest when nothing at all differs", () => {
@@ -168,7 +170,7 @@ describe("describeProposal — stated type contradicted by the model", () => {
       caseWith({ caseType: "re-roof", materials: { existing: "Kent peg tile", proposed: "Welsh slate" } }),
     );
     expect(result.typeMismatch).toBe(false);
-    expect(result.statement).toMatch(/replace the existing roof covering/i);
+    expect(result.statement).toMatch(/the replacement of the roof covering/i);
   });
 
   it("does not claim an extension when no geometry diverged", () => {
@@ -214,19 +216,50 @@ describe("describeProposal — blocks affected by the works", () => {
   it("names a re-covered block alongside the reshaped ones", () => {
     const summary = describeProposal(mixedCase());
     expect(summary.geometryChanged).toBe(true);
-    expect(summary.statement).toContain("alterations to Main house and Front lower roof");
-    expect(summary.statement).toContain("replacement of the roof covering");
-    // the block whose covering is genuinely retained stays out of it
-    expect(summary.statement).not.toContain("Flat roof");
+    // Front lower roof is only re-covered, so it belongs to the covering
+    // clause, not to "alterations to" — but it must still be in the sentence.
+    expect(summary.statement).toContain("alterations to Main house");
+    expect(summary.statement).toContain("the replacement of the roof covering to Main house and Front lower roof");
+    // the block whose covering is genuinely retained is named as retained only
+    expect(summary.statement).toContain("The roof covering of Flat roof is retained as existing.");
   });
 
   it("does not restate the re-covering as a separate alteration under a re-roof headline", () => {
     // caseType re-roof leads with the covering change; listing "alterations to
     // Front lower roof" beside it would describe the headline twice.
     const summary = describeProposal({ ...mixedCase(), caseType: "re-roof" });
-    expect(summary.statement).toMatch(/replace the existing roof covering/i);
+    expect(summary.statement).toMatch(/consent for the replacement of the roof covering to Main house and Front lower roof/);
     expect(summary.statement).toContain("The proposal also comprises alterations to Main house.");
     expect(summary.statement).not.toContain("alterations to Main house and Front lower roof");
+  });
+
+  /** The owner's real set (Aug 2026): five roofs re-covered, a flat roof left
+   *  alone, nothing reshaped. The statement asked for consent "for alterations
+   *  to Main house, Front lower roof … and the replacement of the roof
+   *  covering", which reads as two different jobs on one roof. One clause, with
+   *  its own scope, then what is *not* changing. */
+  it("describes a partial re-covering as one job with a named scope", () => {
+    const names = ["Main house", "Front lower roof", "Gable 3", "Gable 5", "Lean-to / mono 6"];
+    const roofs = (material: string) =>
+      names.map((name, i) => wing({ id: `w${i}`, name, x: i * 8, material }));
+    const flat = wing({ id: "wf", name: "Flat Roof", x: 48, roofType: "flat", material: "Black roof felt" });
+    const summary = describeProposal(
+      caseWith({
+        caseType: "re-roof",
+        materials: { existing: "Kent peg tiles", proposed: "Charcoal Grey Textured Composite Slate tiles" },
+        wings: [...roofs("Kent peg tiles"), flat],
+        proposedWings: [...roofs("Charcoal Grey Textured Composite Slate tiles"), flat],
+      }),
+    );
+    expect(summary.geometryChanged).toBe(false);
+    expect(summary.statement).toBe(
+      "The application seeks consent for the replacement of the roof covering to Main house, Front lower roof, Gable 3, " +
+        "Gable 5 and Lean-to / mono 6, from Kent peg tiles to Charcoal Grey Textured Composite Slate tiles. " +
+        "No other alterations are proposed; the building's footprint, height and roof form are unchanged. " +
+        "The Flat Roof covering, walls, windows, doors and rainwater goods are retained as existing.",
+    );
+    // never two work items where there is one job
+    expect(summary.statement).not.toMatch(/alterations to/);
   });
 
   it("leaves a pure re-covering described as exactly that", () => {
