@@ -12,7 +12,7 @@ import { ELEVATION_DIRS, GROUND_OVERHANG_M, wingsFor, elevationSetScale } from "
 import { roofColorFor, colorForMaterial, variantRoofColor, lighten, openingFill, garagePanelLines, CONTEXT_WALL_FILL, CONTEXT_ROOF_FILL } from "../components/svgDraw";
 import { elevationName } from "../geometry/compass";
 import { geometryUnchanged, wingChanges } from "../data/caseGeometry";
-import { describeProposal, caseTypeLabel, coveringChanged, coveringSummary, recoveredWingIds } from "../data/proposal";
+import { describeProposal, caseTypeLabel, coveringChanged, coveringSummary, recoveredWingIds, matchingComponentPhrase } from "../data/proposal";
 
 const WALL_FILL = "#f2f2f2";
 const RED_LINE = "#e02424";
@@ -658,7 +658,7 @@ function SchedulePage({ planningCase, meta }: { planningCase: PlanningCase; meta
       // itself changing? Say which is being replaced (the components) and which
       // is not (the lines they sit on), and what "match" refers to.
       coveringChanges
-        ? "New components to suit the proposed roof covering, in a matching colour. Ridge line, hip lines and verge profiles unchanged."
+        ? `New components to suit the proposed roof covering, ${matchingComponentPhrase(planningCase)}. Ridge line, hip lines and verge profiles unchanged.`
         : "Unchanged",
     ],
     ["Walls", wallsCell(false), wallsCell(true)],

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { describeProposal, coveringChanged, caseTypeLabel } from "./proposal";
+import { describeProposal, coveringChanged, caseTypeLabel, matchingComponentPhrase } from "./proposal";
 import type { PlanningCase, Wing } from "./types";
 
 const wing = (over: Partial<Wing> = {}): Wing => ({
@@ -268,6 +268,43 @@ describe("describeProposal — blocks affected by the works", () => {
     const summary = describeProposal(caseWith({ materials: { existing: "Kent peg tile", proposed: "Welsh slate" } }));
     expect(summary.statement).not.toMatch(/alterations to/);
     expect(summary.statement).toContain("replacement of the roof covering");
+  });
+});
+
+/** The schedule's "Ridge / hip / verge details" row said the new components
+ *  would be "in a matching colour" — matching what? On a re-covering the colour
+ *  nearest to hand is the one being stripped off (owner review, Aug 2026). */
+describe("matchingComponentPhrase", () => {
+  const names = ["Main house", "Front lower roof", "Gable 3", "Gable 5", "Lean-to / mono 6"];
+  const roofs = (material: string) => names.map((name, i) => wing({ id: `w${i}`, name, x: i * 8, material }));
+  const flat = wing({ id: "wf", name: "Flat Roof", x: 48, roofType: "flat", material: "Black roof felt" });
+
+  it("names the new covering, and only the roofs actually being re-covered", () => {
+    const planningCase = caseWith({
+      materials: { existing: "Kent peg tiles", proposed: "Charcoal Grey Textured Composite Slate tiles" },
+      wings: [...roofs("Kent peg tiles"), flat],
+      proposedWings: [...roofs("Charcoal Grey Textured Composite Slate tiles"), flat],
+    });
+    // the retained felt flat roof has no ridge or verge in this row
+    expect(matchingComponentPhrase(planningCase)).toBe("in a colour to match the new Charcoal Grey Textured Composite Slate tiles");
+  });
+
+  it("never hardcodes a colour — the next case is terracotta", () => {
+    const planningCase = caseWith({
+      materials: { existing: "Welsh slate", proposed: "Terracotta pantile" },
+      wings: roofs("Welsh slate"),
+      proposedWings: roofs("Terracotta pantile"),
+    });
+    expect(matchingComponentPhrase(planningCase)).toBe("in a colour to match the new Terracotta pantile");
+  });
+
+  it("does not pick one covering out of a mixed re-covering", () => {
+    const planningCase = caseWith({
+      materials: { existing: "Kent peg tiles", proposed: "Welsh slate" },
+      wings: [wing({ material: "Kent peg tiles" }), wing({ id: "w2", name: "Gable 3", x: 8, material: "Kent peg tiles" })],
+      proposedWings: [wing({ material: "Welsh slate" }), wing({ id: "w2", name: "Gable 3", x: 8, material: "Spanish slate" })],
+    });
+    expect(matchingComponentPhrase(planningCase)).toBe("in colours to match the new roof coverings scheduled above");
   });
 });
 

@@ -128,6 +128,27 @@ export function coveringSummary(planningCase: PlanningCase, proposed: boolean): 
   return labels.join("; ") || fallback;
 }
 
+/** What the schedule's new ridge/hip/verge components are matching, in words.
+ *
+ *  "New components …, in a matching colour" doesn't say matching *what*, and on
+ *  a re-covering the nearest colour in the reader's mind is the covering being
+ *  stripped off — so it could be read as asking for ridge tiles to match the
+ *  old clay (owner review, Aug 2026). Name the new covering instead.
+ *
+ *  Resolved from the re-covered blocks, never hardcoded: a fixed "in matching
+ *  charcoal grey" is right for the case in front of you and wrong for the next
+ *  terracotta one — the same trap as quoting `materials` instead of the blocks.
+ *  Blocks keeping their covering (a felt flat roof) are excluded: this row is
+ *  about the roofs being re-covered, and they have no ridge or verge in it. */
+export function matchingComponentPhrase(planningCase: PlanningCase): string {
+  const recovered = recoveredWingIds(planningCase);
+  const wings = (planningCase.proposedWings ?? planningCase.wings ?? []).filter((w) => !w.isContext && recovered.has(w.id));
+  const labels = dedupe(wings.map((w) => wingCoveringLabel(planningCase, w, true).trim()).filter(Boolean));
+  if (labels.length === 1) return `in a colour to match the new ${labels[0]}`;
+  if (labels.length > 1) return "in colours to match the new roof coverings scheduled above";
+  return "in a colour to match the new roof covering";
+}
+
 export interface ProposalSummary {
   geometryChanged: boolean;
   coveringChanges: boolean;
