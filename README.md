@@ -9,12 +9,18 @@ and dormers, outbuildings, re-roofs and other external alterations: each case
 carries a **project type** (`caseType`) that, together with the actual
 existing↔proposed difference, words the statement and schedule.
 
-**Private tool — not open source.** Built by
+Open source under the [MIT licence](LICENSE). Built by
 [James Moores](https://www.linkedin.com/in/jamesmoores/).
 
-Static Vite + React SPA, no backend — cases are stored in the browser's
-`localStorage` (see `src/data/`), accounts are a localStorage stub, and the
-whole app builds to plain static files for Netlify.
+Static Vite + React SPA, no backend, no accounts and no sign-in — cases live in
+the browser's `localStorage` (see `src/data/`) and never leave the machine, and
+the whole app builds to plain static files you can host anywhere.
+
+> **Not planning or legal advice.** The output is a drawing set, not an
+> approval. Every local planning authority publishes its own validation
+> checklist and yours is the one that counts — check the output against it
+> before you submit. See [Planning-validity caveats](#planning-validity-caveats)
+> for what the model can and cannot represent.
 
 ## Setup
 
@@ -33,11 +39,8 @@ Fill in `.env.local`:
   amber footer pill explaining the trade-off. Upgrade the project to the
   **Premium plan** (first £1,000/month free) for full-detail 1:1250 mapping.
   Without any key the Location Plan step is disabled; the Building &
-  Elevations step and PDF export still work.
-- `GATE_PASSWORD` — the password required to enter the deployed site
-  (checked by `netlify/edge-functions/gate.ts`). Not used in local `vite
-  dev`, only relevant once deployed to Netlify. `robots.txt`/`llms.txt` stay
-  public for crawlers; set `GATE_PUBLIC=true` to open the whole site.
+  Elevations step and PDF export still work, so you can run and hack on the
+  app with an empty `.env.local`.
 
 ```bash
 npm run dev    # localhost:5173 (note: OS keys are origin-restricted — add
@@ -103,10 +106,10 @@ bat-survey / heritage-statement traps.
 
 See `CLAUDE.md` for the architecture map, geometry conventions, hard-won
 gotchas (OS licensing/zoom quirks, MapLibre's 512px-tile zoom convention,
-capture maths), and the roadmap. Deeper docs in `docs/`: OVERVIEW.md
-(architecture TLDR + expansion levers), planning-requirements.md (validation
-research + example PDFs), value-research.md (commercial case) and
-automation-ideas.md (auto-trace from OS footprints, LiDAR, photos).
+capture maths), and the roadmap — it's the file to read before changing
+anything. Deeper docs in `docs/`: `OVERVIEW.md` (architecture TLDR + expansion
+levers), `planning-requirements.md` (what councils actually validate against)
+and `automation-ideas.md` (auto-trace from OS footprints, LiDAR, photos).
 
 ## Planning-validity caveats
 
@@ -119,8 +122,34 @@ for them on extensions and conversions), and conservation officers are the
 pickiest audience. Check your council's local validation checklist before
 treating the output as submission-ready for complex houses.
 
-## Deploying to Netlify
+## Deploying
 
-Connect the repo (or `netlify deploy`), set `VITE_OS_API_KEY` and
-`GATE_PASSWORD` as site environment variables, and deploy — `netlify.toml`
-already wires up the build command and the password-gate edge function.
+`npm run build` emits a `dist/` of plain static files — any static host will
+do. `netlify.toml` wires up the build command and publish directory for
+Netlify: connect the repo (or `netlify deploy`), set `VITE_OS_API_KEY` as a
+site environment variable, and deploy.
+
+Note that Vite inlines `VITE_OS_API_KEY` into the built bundle, as it must for
+a no-backend app — it is visible to anyone who views source. That is fine for
+an OS Data Hub key *provided you restrict it to your deployed origin* in the
+Data Hub dashboard. Don't reuse an unrestricted key.
+
+## Contributing
+
+Issues and pull requests are welcome. Before opening a PR:
+
+- Read `CLAUDE.md` — it records the conventions and the reasons behind them
+  (canonical geometry keys, one scale per drawing family, the drag threshold),
+  most of which exist because getting them wrong once produced a wrong drawing.
+- `npm test && npm run lint && npm run build` should all pass.
+- Geometry, scale maths and generated wording are the load-bearing parts and
+  have tests; changes there should come with one.
+
+## Licence
+
+[MIT](LICENSE) © 2026 James Moores.
+
+Third-party terms still apply to what you feed it: Ordnance Survey mapping is
+used via the [OS Data Hub](https://osdatahub.os.uk/) under its own licence,
+captured basemaps carry Crown copyright, and the MIT licence here covers this
+source code only — not OS data, and not anything you generate with it.

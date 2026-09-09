@@ -1,8 +1,7 @@
 # Auto-Planning UK — what's built, and where it can go
 
 TLDR of the current app (repo `roofplan`, branded **Auto-Planning UK** in the UI) with
-enough architectural detail to plan expansion and automation. Companion doc:
-[value-research.md](./value-research.md) for the commercial case.
+enough architectural detail to plan expansion and automation.
 
 ## What it does today
 
@@ -10,7 +9,7 @@ A static SPA (Vite + React + TS + PicoCSS, no backend) that produces the full
 drawing set a UK householder planning application needs — extensions, loft
 conversions and dormers, outbuildings, re-roofs and other external
 alterations: Location Plan (1:1250/1:2500 on OS mapping with a red-line
-boundary), Block Plan, Existing/Proposed Roof Plans, outline Floor Plans, and
+boundary), Block Plan, Existing/Proposed Roof Plans, and
 eight elevation sheets at 1:100 (each compass direction × existing/proposed,
 one elevation per sheet, captioned) — each with a scale bar that is
 correct by construction — plus a Schedule of Materials and a generated
@@ -22,8 +21,8 @@ document set never assumes what kind of job it is describing.
 
 Flow: **case list → 3-step wizard** (Location Plan → Building & Elevations →
 Download). Postcode search centres the map and doubles as the case's address.
-The site is password-gated by a Netlify edge function with an HMAC cookie
-(`netlify/edge-functions/gate.ts`), styled as an "Auto-Planning UK" sign-in page.
+There is no sign-in and no backend: cases live in the browser's localStorage
+and the whole app is static files.
 
 ## The one idea that matters
 
@@ -89,9 +88,9 @@ Ordered roughly by leverage-per-effort:
    static-map raster endpoint closes that. Result: an API/queue that turns
    `{postcode, boundary?, wings?}` into a PDF server-side — the foundation
    for selling per-job generation to roofers.
-4. **Accounts + billing.** Second `Repository` implementation (any KV/SQL) +
-   auth to replace the password gate; Stripe per-case checkout on the
-   Download step. localStorage repo remains the offline/dev fallback.
+4. **Accounts + sync.** Second `Repository` implementation (any KV/SQL) plus
+   real auth, so cases follow a user between devices instead of living in one
+   browser. The localStorage repo remains the offline/dev fallback.
 5. **Broaden the document set.** The same case data can fill site plans at
    1:200/1:500, a Design & Access-style cover statement (template text +
    materials), and application form fields — most conservation-area re-roof
@@ -105,9 +104,10 @@ Ordered roughly by leverage-per-effort:
 
 ## Constraints to respect when expanding
 
-- **OS licensing**: reselling output containing OS basemap imagery needs the
-  commercial terms checked (see value-research.md). Keep `os/client.ts` the
-  only OS touchpoint so a licensing change is one file.
+- **OS licensing**: OS basemap imagery in the output carries Crown copyright
+  and the Data Hub's own terms — check them before redistributing or selling
+  anything containing it. Keep `os/client.ts` the only OS touchpoint so a
+  licensing change is one file.
 - **Scale accuracy is structural** — never lay out drawings in arbitrary
   units and rescale; go through `mmForRealMetres`.
 - **Vite pinned to 7** (Vite 8 breaks maplibre's worker in production

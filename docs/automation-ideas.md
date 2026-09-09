@@ -89,9 +89,8 @@ revisit only if true 3D facades become a product goal.
 Chain 1–3 into a queue worker: `{postcode}` → INSPIRE parcel → NGD footprint
 + heights → LiDAR pitch → `Wing[]` → `@react-pdf/renderer` in Node →
 PDF emailed back. Geometry is already pure/DOM-free; only basemap capture
-needs a browser (small Playwright worker). That's the "roofer texts a
-postcode, gets a drawing set" business shape from
-[value-research.md](./value-research.md).
+needs a browser (small Playwright worker). That's the "send a postcode, get a
+drawing set" shape.
 
 ## Suggested order
 

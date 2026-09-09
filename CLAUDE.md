@@ -1,8 +1,13 @@
 # roofplan
 
-Branded **"Auto-Planning UK"** in the UI (wordmark, login gate, footer). Private
-tool, not open source. Docs in `docs/`: `OVERVIEW.md` (architecture TLDR +
-expansion levers), `value-research.md` (commercial case),
+Branded **"Auto-Planning UK"** in the UI (wordmark, footer). Open source under
+MIT (Sep 2026); public at github.com/sprachnik/planningpermission. There is no
+sign-in and no server: the site is public static files and cases live in the
+visitor's own localStorage. The stubbed localStorage account (`src/auth.ts`,
+`AuthPage.tsx`) and the Netlify password-gate edge function were removed when
+it went public — don't reintroduce a login without a real backend behind it.
+Docs in `docs/`: `OVERVIEW.md` (architecture TLDR + expansion levers),
+`planning-requirements.md` (what councils validate against),
 `automation-ideas.md` (auto-trace/photo/LiDAR ideation).
 
 Generates the drawing set a UK householder planning application needs.
@@ -47,16 +52,15 @@ Copy `.env.example` → `.env.local`:
 - `VITE_OS_API_KEY` — OS Data Hub key. **The project must be on the Premium
   plan** (free £1,000/month allowance): planning-scale zooms (17+) are
   "Premium Data" and 403 on the free OpenData plan. The app detects this and
-  shows an upgrade banner. Restrict the key to the deployed domain.
-- `GATE_PASSWORD` (+ optional `GATE_SECRET`) — checked by the Netlify edge
-  function; irrelevant to local dev.
+  shows an upgrade banner. Restrict the key to the deployed domain — Vite
+  inlines it into the public bundle, so origin restriction is the only thing
+  protecting it.
 
 ## Architecture
 
-Static SPA (Vite + React + TS + PicoCSS), no backend. Deploys to Netlify;
-`netlify/edge-functions/gate.ts` password-gates the whole site with an
-HMAC-signed cookie (runs on the free tier, unlike Netlify's built-in
-password protection).
+Static SPA (Vite + React + TS + PicoCSS), no backend, no auth. Deploys to
+Netlify (`netlify.toml` = build command + publish dir, nothing else), but
+`dist/` is plain static files that any host will serve.
 
 ### Data
 

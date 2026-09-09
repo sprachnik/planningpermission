@@ -3,7 +3,7 @@
 > Auto-Planning UK generates the drawing set a UK householder planning
 > application needs: a Location Plan at 1:1250 or 1:2500 on Ordnance Survey
 > mapping with a red-line site boundary, a Block Plan with boundary
-> clearances, Existing and Proposed Roof Plans, outline Floor Plans, all four
+> clearances, Existing and Proposed Roof Plans, all four
 > Existing and Proposed Elevations at 1:100 with scale bars, a Schedule of
 > Materials and a generated Planning Statement — bundled as one Planning
 > Portal-ready PDF.
@@ -45,4 +45,4 @@ generated Planning Statement and schedule:
 ## Contact
 
 Built by James Moores — https://www.linkedin.com/in/jamesmoores/
-Private tool; not open source.
+Open source (MIT) — https://github.com/sprachnik/planningpermission

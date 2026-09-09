@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { PDFDownloadLink } from "@react-pdf/renderer";
 import { repository } from "./data/localStorageRepository";
 import type { CaseType, PlanningCase, Wing } from "./data/types";
@@ -6,10 +6,8 @@ import { CASE_TYPES, caseTypeLabel, describeProposal } from "./data/proposal";
 import { LocationPlanStep } from "./components/LocationPlanStep";
 import { RoofComposerStep } from "./components/composer/RoofComposerStep";
 import { GuidePage } from "./components/GuidePage";
-import { AuthPage } from "./components/AuthPage";
 import { PdfBundle } from "./pdf/PdfBundle";
 import { hasApiKey, hasPremiumTiles } from "./os/client";
-import { getUser, signOut, type StubUser } from "./auth";
 import { roofColorFor, colorForMaterial, variantRoofColor } from "./components/svgDraw";
 
 const FREE_PLAN_DETAIL =
@@ -73,67 +71,10 @@ interface ShellProps {
   onHome: () => void;
   onGuide: () => void;
   freePlan: boolean;
-  user: StubUser | null;
-  onSignIn: () => void;
-  onSignOut: () => void;
   children: ReactNode;
 }
 
-/** Top-right account dropdown: avatar → My cases / Guidance / Sign out. */
-function AccountMenu({ user, onHome, onGuide, onSignOut }: { user: StubUser; onHome: () => void; onGuide: () => void; onSignOut: () => void }) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    const close = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    };
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
-    document.addEventListener("mousedown", close);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", close);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [open]);
-
-  const item = (label: string, action: () => void) => (
-    <a
-      href="#"
-      className="menu-item"
-      onClick={(e) => {
-        e.preventDefault();
-        setOpen(false);
-        action();
-      }}
-    >
-      {label}
-    </a>
-  );
-
-  return (
-    <div className="account-menu" ref={ref}>
-      <button className="account-trigger" onClick={() => setOpen((o) => !o)} aria-haspopup="menu" aria-expanded={open}>
-        <span className="avatar">{user.email[0].toUpperCase()}</span>
-        <span className="chevron" aria-hidden="true">
-          ▾
-        </span>
-      </button>
-      {open && (
-        <div className="menu-pop" role="menu">
-          <div className="menu-email">{user.email}</div>
-          {item("My cases", onHome)}
-          {item("Guidance", onGuide)}
-          <div className="menu-divider" />
-          {item("Sign out", onSignOut)}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function Shell({ onHome, onGuide, freePlan, user, onSignIn, onSignOut, children }: ShellProps) {
+function Shell({ onHome, onGuide, freePlan, children }: ShellProps) {
   return (
     <div className="shell">
       <header className="site-header">
@@ -155,25 +96,21 @@ function Shell({ onHome, onGuide, freePlan, user, onSignIn, onSignOut, children 
               href="#"
               onClick={(e) => {
                 e.preventDefault();
+                onHome();
+              }}
+            >
+              My cases
+            </a>
+            <a
+              className="header-link"
+              href="#"
+              onClick={(e) => {
+                e.preventDefault();
                 onGuide();
               }}
             >
               Guidance
             </a>
-            {user ? (
-              <AccountMenu user={user} onHome={onHome} onGuide={onGuide} onSignOut={onSignOut} />
-            ) : (
-              <a
-                className="header-cta"
-                href="#"
-                onClick={(e) => {
-                  e.preventDefault();
-                  onSignIn();
-                }}
-              >
-                Sign in
-              </a>
-            )}
           </nav>
         </div>
       </header>
@@ -193,7 +130,11 @@ function Shell({ onHome, onGuide, freePlan, user, onSignIn, onSignOut, children 
             <a href="https://www.linkedin.com/in/jamesmoores/" target="_blank" rel="noreferrer">
               James Moores
             </a>{" "}
-            · Private tool, not open source · © 2026
+            ·{" "}
+            <a href="https://github.com/sprachnik/planningpermission" target="_blank" rel="noreferrer">
+              Open source (MIT)
+            </a>{" "}
+            · Not planning advice
           </span>
         </div>
       </footer>
@@ -208,8 +149,6 @@ export default function App() {
   const [freePlan, setFreePlan] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState<PlanningCase | null>(null);
   const [showGuide, setShowGuide] = useState(false);
-  const [showAuth, setShowAuth] = useState(false);
-  const [user, setUser] = useState<StubUser | null>(() => getUser());
   /** Draft for the "Edit details" modal; null = closed */
   const [draft, setDraft] = useState<{
     caseType: CaseType | "";
@@ -251,11 +190,6 @@ export default function App() {
   }
 
   function openCase(c: PlanningCase, isNew = false) {
-    // Planning pages are gated behind the (stubbed) account.
-    if (!user) {
-      setShowAuth(true);
-      return;
-    }
     setActive(normaliseCase(c));
     setStep("location");
     // A new case asks what it's for up front: the project type shapes the
@@ -298,40 +232,16 @@ export default function App() {
 
   const goHome = () => {
     setShowGuide(false);
-    setShowAuth(false);
     setStep("list");
   };
-  const openGuide = () => {
-    setShowAuth(false);
-    setShowGuide(true);
-  };
+  const openGuide = () => setShowGuide(true);
   const caseLabel = (c: PlanningCase) => c.name || c.address || "(no postcode yet)";
 
   const shellProps = {
     onHome: goHome,
     onGuide: openGuide,
     freePlan,
-    user,
-    onSignIn: () => setShowAuth(true),
-    onSignOut: () => {
-      signOut();
-      setUser(null);
-      goHome();
-    },
   };
-
-  if (showAuth && !user) {
-    return (
-      <Shell {...shellProps}>
-        <AuthPage
-          onSignedIn={(u) => {
-            setUser(u);
-            setShowAuth(false);
-          }}
-        />
-      </Shell>
-    );
-  }
 
   if (showGuide) {
     return (
@@ -354,14 +264,14 @@ export default function App() {
           <button
             className="pill"
             onClick={() => openCase(newCase(), true)}
-            data-tooltip={user ? "Saved in this browser — come back to it any time" : "Sign in to start — free while in preview"}
+            data-tooltip="Saved in this browser — come back to it any time"
             data-placement="bottom"
           >
             Start a new case
           </button>
         </div>
 
-        {user && cases.length > 0 ? (
+        {cases.length > 0 ? (
           <section>
             <p className="section-label">Your cases</p>
             {cases.map((c) => (

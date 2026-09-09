@@ -175,15 +175,18 @@ levels evident from plans + elevations usually suffice.
 
 ---
 
-## 3. What real submitted drawings look like (downloaded examples)
+## 3. What real submitted drawings look like
 
-Real householder application documents, downloaded from the public planning
-document aggregator `docs.planning.org.uk` (documents published on council
-planning registers) into [`docs/examples/`](examples/).
+Notes taken from four real householder application documents published on
+council planning registers via the aggregator `docs.planning.org.uk`. The PDFs
+themselves are **not kept in this repo** — they are third-party architects'
+copyrighted drawings carrying applicant names and addresses, and redistributing
+them isn't ours to do. Source URLs are given so you can read the originals; the
+observations below are what mattered for the design of the output.
 
-### [`examples/example1-extension-floorplans.pdf`](examples/example1-extension-floorplans.pdf)
-Two-storey side + single-storey rear extension, [address redacted],
-Bristol (South Gloucestershire). One large sheet carrying the **entire set**:
+### Example 1 — extension, whole set on one sheet
+Two-storey side + single-storey rear extension (South Gloucestershire). One
+large sheet carrying the **entire set**:
 existing + proposed ground/first floor plans (1:100), **all four existing and
 all four proposed elevations** (1:100, compass-named: NE/SE/SW/NW), existing +
 proposed site plans (1:200, each with its own north arrow), and an OS map at
@@ -196,12 +199,12 @@ proposed site plans (1:200, each with its own north arrow), and an OS map at
 - Notes panel: dimensions to be checked on site, not scaled from drawing;
   compliance and copyright lines.
 - Title block: application title, applicant name, address, **Date, Rev,
-  "Scale: As Shown", dwg no `[drawing no redacted]`**.
+  "Scale: As Shown", drawing number**.
 - Source: <https://docs.planning.org.uk/20251009/15/T3T74COKJP000/s1ai41w1ikjc12kp.pdf>
 
-### [`examples/example2-extension-elevations.pdf`](examples/example2-extension-elevations.pdf)
-Additional-storey extension ([address redacted],
-Hampshire), professional practice sheet ([practice redacted]). Notable:
+### Example 2 — additional-storey extension, practice sheet
+Additional-storey extension (Hampshire), drawn by a professional practice.
+Notable:
 - **Graphic scale bar** drawn 0–5 m and labelled "Scale Bar 1:100" next to
   each drawing title ("Proposed Rear Elevation - 1:100").
 - **Leader-line material annotations on the elevations themselves**: "tiles
@@ -214,13 +217,13 @@ Hampshire), professional practice sheet ([practice redacted]). Notable:
   wall, "contractor responsible for checking all scaled and stated
   dimensions").
 - Full title block: **Project Title / Drawing Title ("Proposed Plans
-  (Planning)") / Client / Date / "Scale: 1:100 at A1" / Drawing No. "SK002
-  rev C"** / practice name + full contact details.
+  (Planning)") / Client / Date / "Scale: 1:100 at A1" / Drawing No. +
+  Revision** / practice name and contact details.
 - Source: <https://docs.planning.org.uk/20251013/62/T427LTBPN0500/0joze7get59rxaco.pdf>
 
-### [`examples/example3-roof-plans.pdf`](examples/example3-roof-plans.pdf)
-Existing + proposed **roof plan sheet** ([address redacted], loft/extension
-scheme), CAD-produced. Notable:
+### Example 3 — existing + proposed roof plans
+Existing + proposed **roof plan sheet** for a loft/extension scheme,
+CAD-produced. Notable:
 - Existing and proposed roof plans **side by side on one sheet at the same
   scale**.
 - **North sign / key plan** box; a **legend** (demolition / structural steel /
@@ -234,13 +237,13 @@ scheme), CAD-produced. Notable:
   issue from construction issue.
 - Source: <https://docs.planning.org.uk/20210823/127/QXAY27PJHTB00/7jl54f09v1n6fwhq.pdf>
 
-### [`examples/example4-reroof-heritage-statement.pdf`](examples/example4-reroof-heritage-statement.pdf)
+### Example 4 — re-roof heritage statement
 Not a drawing — a real **heritage assessment** supporting a householder
-application ([address redacted], Calderdale) whose works
-include "**re-roofing of the property in natural blue slate in lieu of
-existing stone slate**" in a conservation area — i.e. Auto Plan's exact use
-case where it meets heritage controls. Shows the structure such a statement
-takes (nature/extent/significance of the asset, proposed works, impact).
+application (Calderdale) whose works include re-roofing a property in natural
+blue slate in lieu of existing stone slate, in a conservation area — i.e. this
+tool's exact use case where it meets heritage controls. Shows the structure
+such a statement takes (nature/extent/significance of the asset, proposed
+works, impact).
 - Source: <https://docs.planning.org.uk/20220502/73/R9T7NKDWGR800/q644i7jt0xd5j58c.pdf>
 
 ---
@@ -333,4 +336,4 @@ Local validation checklists / drawing standards reviewed:
   New Forest (<https://www.newforest.gov.uk/article/1773/Plan-and-drawing-standards>),
   East Suffolk (<https://www.eastsuffolk.gov.uk/assets/Planning/Planning-Applications/Local-Validation-List/Chapter-01-Householder-Applications.pdf>).
 
-Example documents (downloaded copies in `docs/examples/`, source URLs above in §3).
+Example documents (source URLs in §3 above; the PDFs are not redistributed here).
